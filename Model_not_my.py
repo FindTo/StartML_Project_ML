@@ -152,38 +152,23 @@ from sklearn.model_selection import train_test_split, KFold, GridSearchCV
 from catboost import CatBoostClassifier
 from sklearn.model_selection import RandomizedSearchCV
 
+search = CatBoostClassifier(verbose=1,
+                          depth=8,
+                          learning_rate=0.3,
+                          iterations=100,
+                          l2_leaf_reg=5)
 
-# Обучение модели CatBoost с RandomSearch
-def train_catboost(X_train, y_train):
-    catboost_model = CatBoostClassifier(verbose=0)
-    param_grid = {
-        'depth': [4, 6, 8],
-        'learning_rate': [0.1, 0.2, 0.3],
-        'iterations': [100, 200, 300],
-        'l2_leaf_reg': [1, 3, 5],
-    }
+search.fit(X_train, y_train)
 
-    best_hitrate = 0
-    best_model = None
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
 
-    for train_index, val_index in kf.split(X_train):
-        X_train_fold, X_val_fold = X_train[train_index], X_train[val_index]
-        y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
+f1_loc_tr = round(f1_score(y_train, search.predict(X_train), average = 'weighted'), 5)
+f1_loc_test = round(f1_score(y_test, search.predict(X_test), average = 'weighted'), 5)
 
-        random_search = RandomizedSearchCV(catboost_model, param_grid, scoring='roc_auc', cv=3,
-                                           n_iter=20, random_state=42)
-        random_search.fit(X_train_fold, y_train_fold)
+print(f'F-мера для бустинга на трейне: {f1_loc_tr}' )
+print(f'F-мера для бустинга на тесте: {f1_loc_test}' )
 
-        y_val_pred_proba = random_search.predict_proba(X_val_fold)[:, 1]
-        hitrate = calculate_hitrate(y_val_fold.values, y_val_pred_proba)
+fpr, tpr, thd = roc_curve(y_test, search.predict_proba(X_test)[:, 1])
+print(f'AUC для CatBoost на тесте: {auc(fpr, tpr):.5f}')
 
-        if hitrate > best_hitrate:
-            best_hitrate = hitrate
-            best_model = random_search.best_estimator_
-
-    return best_model
-
-
-# Обучаем
-catboost_model = train_catboost(X_train, y_train)
+RocCurveDisplay(fpr = fpr, tpr = tpr).plot()
