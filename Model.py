@@ -6,8 +6,7 @@ DATABASE_URL = "postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karp
 # Установка соединения с базой данных
 user = pd.read_sql("SELECT * FROM public.user_data;", DATABASE_URL)
 post = pd.read_sql("SELECT * FROM public.post_text_df;", DATABASE_URL)
-feed = pd.read_sql("SELECT * FROM public.feed_data LIMIT 2000000;", DATABASE_URL)
-
+feed = pd.read_sql("SELECT * FROM public.feed_data order by random() LIMIT 2000000;", DATABASE_URL)
 print(user.head())
 print(post.head())
 print(feed.head())
@@ -57,7 +56,7 @@ print(f'Число уникальных юзеров:{num_user_full}')
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Зафиттим наши данные в TfidfVectorizer
-tfidf = TfidfVectorizer(stop_words='english', max_features = 500)
+tfidf = TfidfVectorizer(stop_words='english', max_features=500)
 tfidf_matrix = tfidf.fit_transform(post['text'].fillna('unknown'))
 feature_names = tfidf.get_feature_names_out()
 tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf.get_feature_names_out())
@@ -68,33 +67,39 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 #Выделяем главные значаящие слова по методу PCA - от максимальной дисперсии. Далее берем топ
-# Стандартизация данных
+
+# Стандартизация данных - вычитаем среднее значение при помощи скейлера
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(tfidf_matrix.toarray())
+X_scaled = scaler.fit_transform(tfidf_df) # убрано .to_array(),использую датафрейм
 
 # Применение PCA
-pca = PCA(n_components=100)
+pca = PCA(n_components=30)
 X_pca = pca.fit_transform(X_scaled)
-
-# Коэффициенты главных компонент
-components = pca.components_
-
-# Создание DataFrame для значимости
-importance_df = pd.DataFrame(components, columns=tfidf.get_feature_names_out())
-
-# Суммирование абсолютных значений коэффициентов для каждой колонки
-importance_scores = importance_df.abs().sum(axis=0)
-
-# Сортировка по значимости
-sorted_importance = importance_scores.sort_values(ascending=False)
-
-# Получение имен колонок, отсортированных по значимости
-top_features = sorted_importance[:100].index.tolist()
-
-print("100 наиболее значимых колонок:", top_features)
+X_pca = pd.DataFrame(X_pca) # доюбавил преобразование в dataframe
+X_pca = X_pca.add_prefix('PCA_')
 
 #Присоединим к таблице постов новые признаки
-post = pd.concat([post, tfidf_df[top_features]], axis=1)
+post = pd.concat([post, X_pca], axis=1)
+
+# # Коэффициенты главных компонент
+# components = pca.components_
+#
+# # Создание DataFrame для значимости
+# importance_df = pd.DataFrame(components, columns=tfidf.get_feature_names_out())
+#
+# # Суммирование абсолютных значений коэффициентов для каждой колонки
+# importance_scores = importance_df.abs().sum(axis=0)
+#
+# # Сортировка по значимости
+# sorted_importance = importance_scores.sort_values(ascending=False)
+#
+# # Получение имен колонок, отсортированных по значимости
+# top_features = sorted_importance[:50].index.tolist()
+#
+# print("50 наиболее значимых колонок:", top_features)
+
+# #Присоединим к таблице постов новые признаки
+# post = pd.concat([post, tfidf_df[top_features]], axis=1)
 
 # Вещенственные метрики для индикации аутентичности поста, по TF-IDF ключевых слов
 
@@ -182,7 +187,7 @@ df['month'] = df.timestamp.dt.month
 df['day'] = df.timestamp.dt.day
 df['year'] = df.timestamp.dt.year
 
-# Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра
+# Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра, в часах
 df['time_indicator'] = (df['year'] - 2021)*360*24 + df['month']*30*24 + df['day']*24 + df['hour']
 
 categorical_columns.append('month')  # разобью по группам категориальный признак из Feed
@@ -224,18 +229,17 @@ df['action_class'] = df.action_class.apply(lambda x: 1 if x == 'like' or x == 1 
 
 # Присоединяем к мастер-таблице
 df = pd.merge(df, likes_per_user,  on='user_id',how='left')
-#df = pd.merge(df, views_per_user,  on='user_id',how='left')
 
 # Выбираем только числовые столбцы для преобразования
 numeric_columns = df.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
 
 df[numeric_columns] = df[numeric_columns].astype('float32')
 
-# Уберем позиции для юзеров с редким возрастом (а-ля выбросы)
-q_low = df['age'].quantile(0.005)
-q_high = df['age'].quantile(0.995)
-
-df = df[(df['age'] < q_high) & (df['age'] > q_low)]
+# # Уберем позиции для юзеров с редким возрастом (а-ля выбросы)
+# q_low = df['age'].quantile(0.005)
+# q_high = df['age'].quantile(0.995)
+#
+# df = df[(df['age'] < q_high) & (df['age'] > q_low)]
 
 num_user_df = df['user_id'].nunique()
 
@@ -283,8 +287,8 @@ import matplotlib.pyplot as plt
 search = CatBoostClassifier(verbose=0,
                             depth=6,
                             learning_rate=0.3,
-                            iterations=100,
-                            l2_leaf_reg=30,
+                            iterations=150,
+                            l2_leaf_reg=2000,
                             cat_features=categorical_columns)
 
 search.fit(X_train, y_train)
@@ -341,13 +345,15 @@ def calculate_hitrate(y_true, y_pred_proba, k=5):
 
     return hitrate
 
-hitrate = calculate_hitrate(y_test.values[-100:], search.predict_proba(X_test[-100:])[:, 1], k = 5)
+hitrate = calculate_hitrate(y_test.values, search.predict_proba(X_test)[:, 1], k = 5)
 
 print(f'Hitrate для бустинга на тесте: {hitrate}')
 
 # ROC кривая для теста
 RocCurveDisplay(fpr = fpr, tpr = tpr).plot()
 plt.show()
+
+
 
 
 

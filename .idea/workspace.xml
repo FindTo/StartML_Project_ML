@@ -4,32 +4,15 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="77a497e5-19d6-4d76-98b0-14fc045d8acf" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.693dca1-25b439cb-d01449e-f5dfc7fc.tmp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="77a497e5-19d6-4d76-98b0-14fc045d8acf" name="Changes" comment="2M hitrate &gt; 0.2, all features, deleted commit has been recovered">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Model.py" beforeDir="false" afterPath="$PROJECT_DIR$/Model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Model_not_my.py" beforeDir="false" afterPath="$PROJECT_DIR$/Model_not_my.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/catboost_info/catboost_training.json" beforeDir="false" afterPath="$PROJECT_DIR$/catboost_info/catboost_training.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/catboost_info/learn/events.out.tfevents" beforeDir="false" afterPath="$PROJECT_DIR$/catboost_info/learn/events.out.tfevents" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/catboost_info/learn_error.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/catboost_info/learn_error.tsv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/catboost_info/time_left.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/catboost_info/time_left.tsv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.419dc4b0-2dc79f68-e889aaa2-9860ebd4.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.5d6ac379-df2ea77a-142ec69d-332895be.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.7ce2329-bd32bfee-d40625b8-cce74843.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.9b45555e-f834fae-c8a73523-c32ece32.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.9f1a7560-1123429b-7e7afcf3-ebef4609.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.9fc25856-e3308cb1-3c7a8f6a-eb670803.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.a4e3a363-d74d0272-3be56d96-83ecfbce.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.a81e07da-81e60718-eb1ff608-8d4f20b7.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.b065afc2-c317ad06-79a536ff-1221d0e6.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.cd5754b7-f0065327-6d57897a-12db10b.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.ce333bac-26b054c2-9b62cbca-19ddfc74.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.d603a29d-93b847fb-f90134f5-5ab59a5c.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.d7b73845-6a6cd379-d0c8b306-d2ee7206.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.dfcfaf30-f9880c03-1f625e1a-e27a067.tmp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/catboost_info/tmp/cat_feature_index.f015631e-47efc2d8-903ee797-7e916f80.tmp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/catboost_model_final_proj" beforeDir="false" afterPath="$PROJECT_DIR$/catboost_model_final_proj" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/solution.py" beforeDir="false" afterPath="$PROJECT_DIR$/solution.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,13 +33,13 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.Model.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "master"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.Model.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -73,6 +56,15 @@
       <option name="presentableId" value="Default" />
       <updated>1729702918728</updated>
     </task>
+    <task id="LOCAL-00001" summary="2M hitrate &gt; 0.2, all features, deleted commit has been recovered">
+      <option name="closed" value="true" />
+      <created>1730137193657</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1730137193658</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -130,5 +122,10 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="2M AUC 0.694/0.666, hitrate total 0.117. Added new features: likes_per_user, main_topic_liked, main_topic_viewed. No action_class 2M" />
+    <MESSAGE value="2M hitrate &gt; 0.2, all features, deleted commit has been recovered" />
+    <option name="LAST_COMMIT_MESSAGE" value="2M hitrate &gt; 0.2, all features, deleted commit has been recovered" />
   </component>
 </project>
