@@ -5,7 +5,6 @@ import os
 
 # Получить полную таблицу с фичами на всех юзеров, опираясь на датафрейм с обучения
 def get_user_features() -> pd.DataFrame:
-
     # Выгружаем таблицу user с сервера
     user = get_user_df()
     print(user.user_id.nunique())
