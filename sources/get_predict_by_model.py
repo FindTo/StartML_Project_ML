@@ -1,28 +1,25 @@
 import pandas as pd
 from catboost import CatBoostClassifier
-from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
-import matplotlib.pyplot as plt
+from learn_model import calculate_hitrate
 
 from_file = CatBoostClassifier()  # здесь не указываем параметры, которые были при обучении, в дампе модели все есть
 
 from_file.load_model("catboost_model_final_proj")
 
-#Глобальный Hitrate на тесте для оценки финального качества
-def calculate_hitrate(y_true, y_pred_proba, k=5):
-    hits = 0
-    n = len(y_true)
+data = pd.read_csv('df_to_learn.csv', sep=';')
 
-    for i in range(n):
-        # Получаем индексы топ-k вероятностей для текущего пользователя
-        top_k_indices = np.argsort(y_pred_proba[i])[-k:]  # топ-k для текущего пользователя
+df = data.sample(100)
+X = df.drop(['user_id', 'target'], axis=1)
+y = df.target
 
-        # Проверяем, попадает ли хотя бы одно предсказанное значение в класс 1 (лайк)
-        if any(y_true[i] == 1 for idx in top_k_indices):  # Сравниваем класс y_true с топ-k предсказаний
-            hits += 1
+# Выбираем только числовые столбцы для преобразования
+numeric_columns = X.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
+X[numeric_columns] = X[numeric_columns].astype('float32')
 
-    # Возвращаем долю пользователей, для которых был хотя бы один лайк в топ-k
-    hitrate = hits / n
+# Преобразуем численные категориальные в int32
+X[['exp_group', 'month']] = X[['exp_group', 'month']].astype('int32')
 
-    return hitrate
+print(from_file.predict_proba(X)[:, 1])
 
-hitrate = calculate_hitrate(y_test.values, from_file.predict_proba(X_test)[:, 1], k = 5)
+hitrate = calculate_hitrate(y.values, from_file.predict_proba(X)[:, 1], k=5)
+print(f'Hitrate для бустинга на тесте: {hitrate}')

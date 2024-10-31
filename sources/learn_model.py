@@ -7,22 +7,19 @@ from sklearn.model_selection import train_test_split
 from catboost import CatBoostClassifier
 from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
 import matplotlib.pyplot as plt
-
+import os
 def get_user_df():
 
-    DATABASE_URL = "postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
-
     # Установка соединения с базой данных
-    user = pd.read_sql("SELECT * FROM public.user_data;", DATABASE_URL)
+    user = pd.read_sql("SELECT * FROM public.user_data;", os.getenv('DATABASE_URL'))
     print(user.head())
     return user
 
 
 def get_post_df():
-    DATABASE_URL = "postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
 
     # Установка соединения с базой данных
-    post = pd.read_sql("SELECT * FROM public.post_text_df;", DATABASE_URL)
+    post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
     print(post.head())
     return post
 
@@ -30,12 +27,10 @@ def get_post_df():
 # Подготовка фичей по данным от сервера
 def get_features_df(feed_n_lines=1000000):
 
-    DATABASE_URL = "postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
-
     # Установка соединения с базой данных
     user = get_user_df()
     post =  get_post_df()
-    feed = pd.read_sql(f"SELECT * FROM public.feed_data order by random() LIMIT {feed_n_lines};", DATABASE_URL)
+    feed = pd.read_sql(f"SELECT * FROM public.feed_data order by random() LIMIT {feed_n_lines};", os.getenv('DATABASE_URL'))
     print(feed.head())
 
     # Поработаем с категориальными колонками для таблицы new_user. Колонку exp_group тоже считаем как категориальную
@@ -102,7 +97,7 @@ def get_features_df(feed_n_lines=1000000):
     # Применение PCA
     pca = PCA(n_components=10)
     X_pca = pca.fit_transform(X_scaled)
-    X_pca = pd.DataFrame(X_pca) # доюбавил преобразование в dataframe
+    X_pca = pd.DataFrame(X_pca) # добавил преобразование в dataframe
     X_pca = X_pca.add_prefix('PCA_')
 
     #Присоединим к таблице постов новые признаки
@@ -237,7 +232,8 @@ def get_features_df(feed_n_lines=1000000):
     df['main_topic_liked'].fillna(df['main_topic_liked'].mode().item(), inplace=True)
     df['main_topic_viewed'].fillna(df['main_topic_viewed'].mode().item(), inplace=True)
 
-    categorical_columns.append('main_topic_viewed')  # разобью по группам категориальный признак из Feed
+    # разобью по группам категориальный признак из Feed
+    categorical_columns.append('main_topic_viewed')
     categorical_columns.append('main_topic_liked')
 
     # Фича-счетчик лайков по юзерам

@@ -14,4 +14,5 @@ category-encoders==2.5.0
 loguru==0.6.0
 implicit==0.5.2
 lightfm==1.16
-nltk==3.9.1
+matplotlib==3.8.4
+python-dotenv==0.20.0
