@@ -26,16 +26,15 @@ def get_user_features() -> pd.DataFrame:
     user = user.drop(['os', 'source'], axis=1)
 
     # Конвертация численных во float32 для модели
-    numeric_columns = user.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
+    numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
     user[numeric_columns] = user[numeric_columns].astype('float32')
 
-
-    user_features = data[['user_id', 'gender', 'age', 'country',
-           'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed', 'views_per_user',
-           'likes_per_user']]
+    # user_features = data[['user_id', 'gender', 'age', 'country',
+    #        'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed', 'views_per_user',
+    #        'likes_per_user']]
 
     # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
-    user = user.combine_first(user_features)
+    user = user.combine_first(data)
 
     # Конвертация категориального численного в int32 для модели
     user['exp_group'] = user['exp_group'].astype('int32')
@@ -61,7 +60,8 @@ def get_user_features() -> pd.DataFrame:
     #print(user.columns)
     print(user.main_topic_liked.isna().sum())
     print(user.user_id.nunique())
-    print(user_features.user_id.nunique())
+    print(user.post_id.nunique())
+    print(data.user_id.nunique())
     user.sample(100).to_csv('user_data.csv', sep=';', index=False)
     user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
 

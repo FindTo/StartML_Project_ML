@@ -4,10 +4,12 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
+from sklearn.cluster import DBSCAN, KMeans
 from catboost import CatBoostClassifier
 from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
 import matplotlib.pyplot as plt
-import os
+import os, pickle
+
 def get_user_df():
 
     # Установка соединения с базой данных
@@ -29,8 +31,9 @@ def get_features_df(feed_n_lines=1000000):
 
     # Установка соединения с базой данных
     user = get_user_df()
-    post =  get_post_df()
+    post = get_post_df()
     feed = pd.read_sql(f"SELECT * FROM public.feed_data order by random() LIMIT {feed_n_lines};", os.getenv('DATABASE_URL'))
+    feed = feed.drop_duplicates()
     print(feed.head())
 
     # Поработаем с категориальными колонками для таблицы new_user. Колонку exp_group тоже считаем как категориальную
@@ -79,14 +82,16 @@ def get_features_df(feed_n_lines=1000000):
     print(f'Число уникальных постов:{num_post_full}')
 
     # Зафиттим наши данные в TfidfVectorizer
-    tfidf = TfidfVectorizer(stop_words='english', max_features=300)
+    tfidf = TfidfVectorizer(stop_words='english', strip_accents='unicode', min_df = 0.01, max_features = 2000)
     tfidf_matrix = tfidf.fit_transform(post['text'].fillna('unknown'))
     feature_names = tfidf.get_feature_names_out()
     tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf.get_feature_names_out())
     tfidf_df.reset_index(drop=True, inplace=True)
     post.reset_index(drop=True, inplace=True)
 
-    #Выделяем главные значаящие слова по методу PCA - от максимальной дисперсии. Далее берем топ
+    # Выделяем главные значаящие слова по методу PCA - от максимальной дисперсии
+    # Далее берем топ значимых TF-IDF для PCA фичей, и по ним делаем кластеризацию
+    # Это будет новый категориальный признак
 
     # Стандартизация данных - вычитаем среднее значение при помощи скейлера
     scaler = StandardScaler()
@@ -95,51 +100,68 @@ def get_features_df(feed_n_lines=1000000):
     X_scaled = scaler.fit_transform(tfidf_df)
 
     # Применение PCA
-    pca = PCA(n_components=10)
+    pca = PCA(n_components=200)
+
     X_pca = pca.fit_transform(X_scaled)
-    X_pca = pd.DataFrame(X_pca) # добавил преобразование в dataframe
+    X_pca = pd.DataFrame(X_pca)
     X_pca = X_pca.add_prefix('PCA_')
 
-    #Присоединим к таблице постов новые признаки
-    post = pd.concat([post, X_pca], axis=1)
+    # Коэффициенты главных компонент
+    components = pca.components_
 
-    # # Коэффициенты главных компонент
-    # components = pca.components_
-    #
-    # # Создание DataFrame для значимости
-    # importance_df = pd.DataFrame(components, columns=tfidf.get_feature_names_out())
-    #
-    # # Суммирование абсолютных значений коэффициентов для каждой колонки
-    # importance_scores = importance_df.abs().sum(axis=0)
-    #
-    # # Сортировка по значимости
-    # sorted_importance = importance_scores.sort_values(ascending=False)
-    #
-    # # Получение имен колонок, отсортированных по значимости
+    # Создание DataFrame для значимости
+    importance_df = pd.DataFrame(tfidf_df, columns=tfidf.get_feature_names_out())
+
+    # Суммирование абсолютных значений коэффициентов для каждой колонки
+    importance_scores = importance_df.abs().sum(axis=0)
+
+    # Сортировка по значимости
+    sorted_importance = importance_scores.sort_values(ascending=False)
+
+    # Получение топ имен колонок, отсортированных по значимости
+    top_features = sorted_importance[:1500].index.tolist()
+
+    print("Наиболее значимые слова:", top_features)
+
+    # Примени кластеризацию DBSCAN - т.к. не занем сколько и каких кластеров есть
+    #clustering = DBSCAN(eps=0.6, min_samples=4).fit_predict(tfidf_df[top_features])
+    clustering = KMeans(n_clusters=5, random_state=42, max_iter=1000).fit_predict(tfidf_df[top_features])
+    clusters = pd.DataFrame({"clusters": clustering})
+
+    print(clusters.nunique())
+
+    # categorical_columns.append('clusters')
+
+    one_hot = pd.get_dummies(clusters['clusters'], prefix='cluster', drop_first=True, dtype='int32')
+
+    post = pd.concat((post, one_hot), axis=1)
+
+    # # Сократим топ имен колонок, отсортированных по значимости
     # top_features = sorted_importance[:50].index.tolist()
     #
-    # print("50 наиболее значимых колонок:", top_features)
-
-    # #Присоединим к таблице постов новые признаки
+    # # #Присоединим к таблице постов новые признаки от TF-IDF по ключевым словам
     # post = pd.concat([post, tfidf_df[top_features]], axis=1)
 
-    # Вещенственные метрики для индикации аутентичности поста, по TF-IDF ключевых слов
-    post['tf_idf_median_5'] = 0
-    post['tf_idf_mean_20'] = 0
+    # # Вещенственные метрики для индикации аутентичности поста, по TF-IDF ключевых слов
 
-    for index, value in post['text'].items():
+    # post['tf_idf_median_5'] = 0
+    # post['tf_idf_mean_20'] = 0
 
-        words = pd.DataFrame(tfidf_matrix[index].T.todense(),
-                             index=feature_names,
-                             columns=['tfidf'])
+    # for index, value in post['text'].items():  # смотрим tf-idf только по фильмам
 
-        words_sort = words.sort_values('tfidf', ascending=False).head(20)
-        post['tf_idf_median_5'].iloc[index] = words_sort.head(5).median()
-        post['tf_idf_mean_20'].iloc[index] = words_sort.mean()
+    #     words = pd.DataFrame(tfidf_matrix[index].T.todense(),
+    #                          index=feature_names,
+    #                          columns=['tfidf'])
+
+    #     words_sort = words.sort_values('tfidf', ascending=False).head(20)
+    #     post['tf_idf_median_5'].iloc[index] = words_sort.head(5).median()
+    #     post['tf_idf_mean_20'].iloc[index] = words_sort.mean()
+
+    # print(post['tf_idf_median_5'].head(30))
 
     # Длина текста поста - новый признак
     post['text_length'] = post['text'].apply(len)
-    #post = post.rename(columns={"text": "text_feature"})
+    # post = post.rename(columns={"text": "text_feature"})
 
     # Убираем исходные тексты из признаков
     post = post.drop(['text'], axis=1)
@@ -147,19 +169,14 @@ def get_features_df(feed_n_lines=1000000):
     # разобью по группам категориальный признак из Post
     categorical_columns.append('topic')
 
-    # OneHotEncoding по topic
-    # one_hot = pd.get_dummies(post['topic'], prefix='topic', drop_first=True, dtype='int32')
-    #
-    # post = pd.concat((post.drop('topic', axis=1), one_hot), axis=1)
-
     # Выбираем только числовые столбцы таблицы Post для преобразования
-    numeric_columns = post.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
+    numeric_columns = post.select_dtypes(include=['float64', 'int64']).columns
 
     # Преобразуем только числовые столбцы в float32
     post[numeric_columns] = post[numeric_columns].astype('float32')
 
     # Выбираем только числовые столбцы таблицы Feed для преобразования
-    numeric_columns = feed.select_dtypes(include=['float64', 'int64','float32', 'int32' ]).columns
+    numeric_columns = feed.select_dtypes(include=['float64', 'int64' ]).columns
 
     # Преобразуем только числовые столбцы в float32
     feed[numeric_columns] = feed[numeric_columns].astype('float32')
@@ -232,11 +249,11 @@ def get_features_df(feed_n_lines=1000000):
     df['main_topic_liked'].fillna(df['main_topic_liked'].mode().item(), inplace=True)
     df['main_topic_viewed'].fillna(df['main_topic_viewed'].mode().item(), inplace=True)
 
-    # разобью по группам категориальный признак из Feed
+    # Разобью по группам категориальный признак из Feed
     categorical_columns.append('main_topic_viewed')
     categorical_columns.append('main_topic_liked')
 
-    # Фича-счетчик лайков по юзерам
+    # Признак-счетчик лайков по юзерам
     likes_per_user = df.groupby(['user_id'])['action_class'].agg(pd.Series.sum).to_frame().reset_index()
     likes_per_user = likes_per_user.rename(columns={"action_class": "likes_per_user"})
 
@@ -250,15 +267,9 @@ def get_features_df(feed_n_lines=1000000):
     df = pd.merge(df, likes_per_user,  on='user_id',how='left')
 
     # Выбираем только числовые столбцы для преобразования
-    numeric_columns = df.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
+    numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns
 
     df[numeric_columns] = df[numeric_columns].astype('float32')
-
-    # # Уберем позиции для юзеров с редким возрастом (а-ля выбросы)
-    # q_low = df['age'].quantile(0.005)
-    # q_high = df['age'].quantile(0.995)
-    #
-    # df = df[(df['age'] < q_high) & (df['age'] > q_low)]
 
     num_user_df = df['user_id'].nunique()
     print(f'Число уникальных юзеров в итоговом датасете:{num_user_df}')
@@ -274,13 +285,16 @@ def get_features_df(feed_n_lines=1000000):
     df['target'] = df['target'] | df['action_class']
 
     # Уберем лишние признаки
-    df = df.drop(['post_id', 'timestamp', 'action_class', 'os', 'source', 'day_of_week', 'year'], axis=1)
-    # сохраняю с user_id для генерации таблицы признаков для сервера
-    df.to_csv('df_to_learn.csv', sep=';', index=False)
-    df = df.drop(['user_id'], axis=1)
+    df = df.drop(['timestamp', 'action_class', 'os', 'source', 'day_of_week', 'year'], axis=1)
 
     # Преобразуем численные категориальные в int32
     df[['exp_group', 'month']] = df[['exp_group', 'month']].astype('int32')
+
+    # сохраняю с user_id для генерации таблицы признаков для сервера
+    df.to_csv('df_to_learn.csv', sep=';', index=False)
+
+    # Удаляю ненужный более user_id и post_id
+    df = df.drop(['user_id', 'post_id'], axis=1)
 
     # Получение общего объема памяти, занимаемой DataFrame
     total_memory = df.memory_usage(deep=True).sum()
@@ -306,7 +320,7 @@ def calculate_hitrate(y_true, y_pred_proba, k=5):
     hitrate = hits / n
 
     return hitrate
-def learn_model(df_size = 1000000):
+def learn_model(df_size = 2000000):
 
     # Наберем необходимые записи
     data, cat_columns = get_features_df(feed_n_lines=df_size)
