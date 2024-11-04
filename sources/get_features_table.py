@@ -65,6 +65,7 @@ def get_user_features() -> pd.DataFrame:
     #user.sample(100).to_csv('user_data.csv', sep=';', index=False)
     #user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
 
+
     return user
 
 def df_to_sql(df):

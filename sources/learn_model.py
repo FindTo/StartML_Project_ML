@@ -10,6 +10,22 @@ from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
 import matplotlib.pyplot as plt
 import os, pickle
 
+def get_user_df():
+
+    # Установка соединения с базой данных
+    user = pd.read_sql("SELECT * FROM public.user_data;", os.getenv('DATABASE_URL'))
+    print(user.head())
+    return user
+
+
+def get_post_df():
+
+    # Установка соединения с базой данных
+    post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
+    print(post.head())
+    return post
+
+
 # Подготовка фичей по данным от сервера
 def get_features_df(feed_n_lines=1000000):
 

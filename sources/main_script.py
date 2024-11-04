@@ -9,10 +9,11 @@ load_dotenv()
 #model, df, cat_columns = learn_model(1000000)
 
 #df = get_user_features()
-#df_to_sql(get_user_features())
+df_to_sql(get_user_features())
 
-check_model_locally()
+#check_model_locally()
 
-#df = load_features()
+df = load_features()
 
+df
 #print(df.head(20))
