@@ -2,7 +2,20 @@ import pandas as pd
 from learn_model import get_user_df
 from sqlalchemy import create_engine
 import os
+def get_user_df():
 
+    # Установка соединения с базой данных
+    user = pd.read_sql("SELECT * FROM public.user_data;", os.getenv('DATABASE_URL'))
+    print(user.head())
+    return user
+
+
+def get_post_df():
+
+    # Установка соединения с базой данных
+    post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
+    print(post.head())
+    return post
 # Получить полную таблицу с фичами на всех юзеров, опираясь на датафрейм с обучения
 def get_user_features() -> pd.DataFrame:
     # Выгружаем таблицу user с сервера
@@ -39,31 +52,18 @@ def get_user_features() -> pd.DataFrame:
     # Конвертация категориального численного в int32 для модели
     user['exp_group'] = user['exp_group'].astype('int32')
 
-    # user = user.drop(['gender_x', 'age_x', 'country_x', 'city_capital_x','exp_group_x',],
-    #                  axis = 1).rename(columns={'gender_y': 'gender', 'age_y': 'age', 'country_y': 'country',
-    #                                         'exp_group_y': 'exp_group', 'city_capital_y': 'city_capital'})
-
-    # # Преобразуем численные категориальные в int32
-    # user[['exp_group']] = user[['exp_group']].astype('int32')
-
-    # print(user[['gender_y', 'age_y', 'country_y', 'city_capital_y', 'exp_group_y']].combine_first(user[['gender_x',
-    #                                                                                             'age_x',
-    #                                                                                             'country_x',
-    #                                                                                             'city_capital_x',
-    #                                                                                             'exp_group_x']]).shape)
     # user['main_topic_liked'].fillna(user['main_topic_liked'].mode(), inplace=True)
     # user['main_topic_viewed'].fillna(user['main_topic_viewed'].mode(), inplace=True)
     # user['views_per_user'].fillna(user['views_per_user'].median(), inplace=True)
     # user['likes_per_user'].fillna(user['likes_per_user'].median(), inplace=True)
 
     print(user.shape)
-    #print(user.columns)
     print(user.main_topic_liked.isna().sum())
     print(user.user_id.nunique())
     print(user.post_id.nunique())
     print(data.user_id.nunique())
-    user.sample(100).to_csv('user_data.csv', sep=';', index=False)
-    user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
+    #user.sample(100).to_csv('user_data.csv', sep=';', index=False)
+    #user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
 
     return user
 

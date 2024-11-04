@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from loguru import logger
 from database import SessionLocal
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 from table_post import Post
 from table_user import User
 from table_feed import Feed
@@ -120,8 +120,8 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
     # Набираю пул постов для предсказания: для юзера они должны быть незнакомы и более-менее пролайканы и просмотрены
     post_pull = user_df[(user_df['user_id'] != user_features.iloc[0]['user_id'])
-                     & (user_df['post_views'] > 100)
-                     & (user_df['post_likes'] > 30)
+                     & (user_df['post_views'] > 60)
+                     & (user_df['post_likes'] > 20)
                      ][['post_id', 'post_likes', 'post_views', 'text_length',
                         'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4', 'topic'
                         ]].drop_duplicates('post_id').reset_index()
@@ -153,8 +153,7 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
     X = X.combine_first(post_pull)
 
-    logger.info(X['ax'].head())
-
+    # Первые n=limit постов из пула с максимальной вероятностью лайка
     posts_recnd = X.drop_duplicates('post_id').sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
 
     logger.info(posts_recnd)
@@ -162,14 +161,11 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
     posts_recnd_list = []
 
     # Набираю посты из скачанной таблицы постов
-
     for i in posts_recnd:
 
-        #posts_recnd_list.append(post_df[post_df['post_id'] == i].iloc[0])
-        posts_recnd_list.append(get_post(i, get_db()))
-
-    logger.info(posts_recnd_list)
+        posts_recnd_list.append(PostGet(id=i,
+                                        text=post_df[post_df['post_id'] == i].text.iloc[0],
+                                        topic=post_df[post_df['post_id'] == i].topic.iloc[0])
+                                )
 
     return posts_recnd_list
-
-    #return [x[0] for x in posts_recnd_list]
