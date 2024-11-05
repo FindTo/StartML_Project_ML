@@ -16,7 +16,7 @@ def load_models():
     model.load_model(model_path)
     return model
 
-def check_model_locally():
+def check_model_locally(n: int = 1000):
 
     from_file = CatBoostClassifier()  # здесь не указываем параметры, которые были при обучении, в дампе модели все есть
 
@@ -24,16 +24,21 @@ def check_model_locally():
 
     data = pd.read_csv('df_to_learn.csv', sep=';')
 
-    df = data.sample(100)
-    X = df.drop(['user_id', 'target'], axis=1)
+    df = data.sample(n)
+    X = df.drop(['user_id', 'target', 'post_id'], axis=1)
     y = df.target
 
     # Выбираем только числовые столбцы для преобразования
-    numeric_columns = X.select_dtypes(include=['float64', 'int64', 'float32', 'int32']).columns
+    numeric_columns = X.select_dtypes(include=['float64', 'int64']).columns
     X[numeric_columns] = X[numeric_columns].astype('float32')
 
-    # Преобразуем численные категориальные в int32
-    X[['exp_group', 'month']] = X[['exp_group', 'month']].astype('int32')
+    # Привожу к формату признаков модели
+    X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+       'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+       'exp_group', 'month']] = X[
+        ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+         'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+         'exp_group', 'month']].astype('int32')
 
     print(from_file.predict_proba(X)[:, 1])
 

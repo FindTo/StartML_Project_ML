@@ -120,6 +120,7 @@ def get_user_features() -> pd.DataFrame:
 
 # Список признаков модели
 columns = ['topic', 'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+            'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
            'text_length', 'gender', 'age', 'country', 'exp_group', 'city_capital',
            'post_likes', 'post_views', 'hour', 'month', 'day', 'time_indicator',
            'main_topic_liked', 'main_topic_viewed', 'views_per_user',
@@ -169,10 +170,12 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
     # Набираю пул постов для предсказания: для юзера они должны быть незнакомы и более-менее пролайканы и просмотрены
     post_pull = user_df[(user_df['user_id'] != user_features.iloc[0]['user_id'])
-                     & (user_df['post_views'] > 60)
-                     & (user_df['post_likes'] > 20)
+                     & (user_df['post_views'] > 20)
+                     & (user_df['post_likes'] > 10)
                      ][['post_id', 'post_likes', 'post_views', 'text_length',
-                        'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4', 'topic'
+                        'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+                        'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+                        'topic'
                         ]].drop_duplicates('post_id').reset_index()
 
     # Мержу запись по юзеру с постами и заполняю пропуски данными юзера
@@ -193,8 +196,12 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
     X['views_per_user'] = X['views_per_user'].fillna(X['views_per_user'].mode()[0])
 
     # Привожу к формату признаков модели
-    X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4', 'exp_group', 'month']] = X[
-        ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4', 'exp_group', 'month']].astype('int32')
+    X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+       'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+       'exp_group', 'month']] = X[
+        ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
+         'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+         'exp_group', 'month']].astype('int32')
 
     X = X[columns]
 

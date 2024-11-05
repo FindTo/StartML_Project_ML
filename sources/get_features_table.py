@@ -16,14 +16,17 @@ def get_post_df():
     post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
     print(post.head())
     return post
+
 # Получить полную таблицу с фичами на всех юзеров, опираясь на датафрейм с обучения
 def get_user_features() -> pd.DataFrame:
+
     # Выгружаем таблицу user с сервера
     user = get_user_df()
     print(user.user_id.nunique())
 
     # Читаем датафрейм с обучения модели
-    data = pd.read_csv('df_to_learn.csv', sep=';')
+    #data = pd.read_csv('df_to_learn.csv', sep=';')
+    data = load_features()
 
     print(data.shape)
     print(data.head())
@@ -42,29 +45,17 @@ def get_user_features() -> pd.DataFrame:
     numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
     user[numeric_columns] = user[numeric_columns].astype('float32')
 
-    # user_features = data[['user_id', 'gender', 'age', 'country',
-    #        'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed', 'views_per_user',
-    #        'likes_per_user']]
-
     # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
     user = user.combine_first(data)
 
     # Конвертация категориального численного в int32 для модели
     user['exp_group'] = user['exp_group'].astype('int32')
 
-    # user['main_topic_liked'].fillna(user['main_topic_liked'].mode(), inplace=True)
-    # user['main_topic_viewed'].fillna(user['main_topic_viewed'].mode(), inplace=True)
-    # user['views_per_user'].fillna(user['views_per_user'].median(), inplace=True)
-    # user['likes_per_user'].fillna(user['likes_per_user'].median(), inplace=True)
-
     print(user.shape)
     print(user.main_topic_liked.isna().sum())
     print(user.user_id.nunique())
     print(user.post_id.nunique())
     print(data.user_id.nunique())
-    #user.sample(100).to_csv('user_data.csv', sep=';', index=False)
-    #user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
-
 
     return user
 

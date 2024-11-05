@@ -119,13 +119,13 @@ def get_features_df(feed_n_lines=1000000):
     sorted_importance = importance_scores.sort_values(ascending=False)
 
     # Получение топ имен колонок, отсортированных по значимости
-    top_features = sorted_importance[:1500].index.tolist()
+    top_features = sorted_importance[:1000].index.tolist()
 
     print("Наиболее значимые слова:", top_features)
 
     # Примени кластеризацию DBSCAN - т.к. не занем сколько и каких кластеров есть
-    #clustering = DBSCAN(eps=0.6, min_samples=4).fit_predict(tfidf_df[top_features])
-    clustering = KMeans(n_clusters=5, random_state=42, max_iter=1000).fit_predict(tfidf_df[top_features])
+    #clustering = DBSCAN(eps=0.5, min_samples=4).fit_predict(tfidf_df[top_features])
+    clustering = KMeans(n_clusters=10, random_state=42, max_iter=1000).fit_predict(tfidf_df[top_features])
     clusters = pd.DataFrame({"clusters": clustering})
 
     print(clusters.nunique())
@@ -320,7 +320,7 @@ def calculate_hitrate(y_true, y_pred_proba, k=5):
     hitrate = hits / n
 
     return hitrate
-def learn_model(df_size = 2000000):
+def learn_model(df_size = 1000000):
 
     # Наберем необходимые записи
     data, cat_columns = get_features_df(feed_n_lines=df_size)
