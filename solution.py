@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI
 from loguru import logger
-from database import SessionLocal
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
@@ -10,10 +10,38 @@ from catboost import CatBoostClassifier
 import pandas as pd
 import os
 
+app = FastAPI()
+
 DATABASE_URL="postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
 FEATURES_DF_NAME="vladislav_lantsev_features_lesson_22"
 CHUNKSIZE="200000"
 
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def load_features() -> pd.DataFrame:
+
+    engine = create_engine(DATABASE_URL)
+    conn = engine.connect().execution_options(stream_results=True)
+    chunks = []
+
+    try:
+
+        print(("from sql - start loading"))
+        for chunk_dataframe in pd.read_sql(FEATURES_DF_NAME,
+                                           conn, chunksize=int(CHUNKSIZE)):
+
+            chunks.append(chunk_dataframe)
+
+        print(("from sql - loaded successfully"))
+
+    except Exception as e:
+
+        raise RuntimeError(f"Loading error: {e}")
+
+    finally:
+        conn.close()
+
+    return pd.concat(chunks, ignore_index=True)
 def get_model_path(path: str) -> str:
     if os.environ.get("IS_LMS") == "1":
         MODEL_PATH = '/workdir/user_input/model'
@@ -49,12 +77,14 @@ def get_post_df():
     return post
 
 def get_user_features() -> pd.DataFrame:
+
     # Выгружаем таблицу user с сервера
     user = get_user_df()
     print(user.user_id.nunique())
 
     # Читаем датафрейм с обучения модели
-    data = pd.read_csv('df_to_learn.csv', sep=';')
+    #data = pd.read_csv('df_to_learn.csv', sep=';')
+    data = load_features()
 
     print(data.shape)
     print(data.head())
@@ -73,31 +103,20 @@ def get_user_features() -> pd.DataFrame:
     numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
     user[numeric_columns] = user[numeric_columns].astype('float32')
 
-    # user_features = data[['user_id', 'gender', 'age', 'country',
-    #        'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed', 'views_per_user',
-    #        'likes_per_user']]
-
     # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
     user = user.combine_first(data)
 
     # Конвертация категориального численного в int32 для модели
     user['exp_group'] = user['exp_group'].astype('int32')
 
-    # user['main_topic_liked'].fillna(user['main_topic_liked'].mode(), inplace=True)
-    # user['main_topic_viewed'].fillna(user['main_topic_viewed'].mode(), inplace=True)
-    # user['views_per_user'].fillna(user['views_per_user'].median(), inplace=True)
-    # user['likes_per_user'].fillna(user['likes_per_user'].median(), inplace=True)
-
     print(user.shape)
     print(user.main_topic_liked.isna().sum())
     print(user.user_id.nunique())
     print(user.post_id.nunique())
     print(data.user_id.nunique())
-    #user.sample(100).to_csv('user_data.csv', sep=';', index=False)
-    #user.to_csv('vladislav_lantsev_features_lesson_22.csv', sep=';', index=False)
 
     return user
-app = FastAPI()
+
 
 # Список признаков модели
 columns = ['topic', 'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
