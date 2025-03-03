@@ -1,17 +1,18 @@
 from learn_model import learn_model
-from get_features_table import df_to_sql, get_user_features, load_features
-from get_predict_by_model import  check_model_locally
+from get_features_table import df_to_sql, get_user_post_features, load_features
 from dotenv import load_dotenv
+import pandas as pd
+import os
 
-#загрузка переменных окружения
+# Load env variables
 load_dotenv()
 
-#model, df, cat_columns = learn_model(1000000)
+# data, post, model = learn_model()
 
-#df_to_sql(get_user_features())
+# user_df, post_df, nn_input_columns_df = get_user_post_features()
+#
+# df_to_sql(user_df, os.getenv('USER_FEATURES_DF_NAME'))
+# df_to_sql(post_df, os.getenv('POST_FEATURES_DF_NAME'))
+# df_to_sql(nn_input_columns_df, os.getenv('NN_INPUT_COLUMNS_DF_NAME'))
 
-check_model_locally()
 
-#df = load_features()
-
-#print(df.head(20))

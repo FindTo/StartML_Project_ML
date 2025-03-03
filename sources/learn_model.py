@@ -1,15 +1,198 @@
 import pandas as pd
 import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, random_split
+from torch.optim import Adam
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.cluster import DBSCAN, KMeans
-from catboost import CatBoostClassifier
-from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc
+from sklearn.metrics import f1_score, roc_curve, RocCurveDisplay, auc, accuracy_score
+from tqdm import tqdm
 import matplotlib.pyplot as plt
-import os, pickle
+from IPython.display import clear_output
+import os
 
+# Dataset for posts recommendation learning
+class Recommend_Data(Dataset):
+    def __init__(self, df):
+
+        self.target = df['target']
+
+        self.data = df.drop(['target', 'user_id', 'post_id'], axis=1)
+
+    def __getitem__(self, idx):
+        vector = self.data.loc[idx]
+        target = self.target.loc[idx]
+
+        vector = torch.FloatTensor(vector)
+        target = torch.FloatTensor([target])
+
+        return vector, target
+
+    def __len__(self):
+        return len(self.target)
+
+# FC NN for classification
+def create_nn_to_classify():
+    class FirstModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+            self.net = nn.Sequential(
+
+                nn.Linear(245, 256),
+                nn.BatchNorm1d(256),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(256, 128),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(128, 64),
+                nn.BatchNorm1d(64),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(64, 16),
+                nn.BatchNorm1d(16),
+                nn.Sigmoid(),
+                nn.Dropout(p=0.2),
+
+                nn.Linear(16, 1),
+
+            )
+
+        def forward(self, x):
+            return self.net(x)
+
+    return FirstModel()
+
+# Calculate NN output and binary accuracy based on true results
+def binary_accuracy(preds, y):
+    rounded_preds = torch.round(torch.sigmoid(preds))
+    correct = (rounded_preds == y).float()
+    acc = correct.sum() / len(correct)
+    return acc
+
+# Train cycle of NN
+def train(model, train_loader, device, optimizer):
+    model.train()
+    loss_fn = nn.BCEWithLogitsLoss()
+    train_loss = 0
+    train_accuracy = 0
+
+    for x, y in tqdm(train_loader, desc='Train'):
+        x, y = x.to(device), y.to(device)
+
+        optimizer.zero_grad()
+
+        output = model(x)
+
+        output, y = output.cpu(), y.cpu()
+
+        loss = loss_fn(output, y)
+
+        train_loss += loss.item()
+
+        train_accuracy += binary_accuracy(output, y)
+
+        loss.backward()
+
+        optimizer.step()
+
+    train_loss /= len(train_loader)
+    train_accuracy /= len(train_loader)
+
+    train_loss, train_accuracy = train_loss, train_accuracy
+
+    return train_loss, train_accuracy
+
+# Calculate NN output and estimate accuracy
+@torch.inference_mode()
+def evaluate(model, loader, device) -> tuple[float, float]:
+    model.eval()
+    loss_fn = nn.BCEWithLogitsLoss()
+    total_loss = 0
+    total_accuracy = 0
+
+    for x, y in tqdm(loader, desc='Evaluation'):
+        x, y = x.to(device), y.to(device)
+
+        output = model(x)
+
+        output, y = output.cpu(), y.cpu()
+        loss = loss_fn(output, y)
+
+        total_loss += loss.item()
+        total_accuracy += binary_accuracy(output, y)
+
+    total_loss /= len(loader)
+    total_accuracy /= len(loader)
+
+    return total_loss, total_accuracy
+
+# Plot graphs of accuraccy and loss change dynamic during epochs
+def plot_stats(
+        train_loss: list[float],
+        valid_loss: list[float],
+        train_accuracy: list[float],
+        valid_accuracy: list[float],
+        title: str
+):
+    plt.figure(figsize=(16, 8))
+
+    plt.title(title + ' loss')
+
+    plt.plot(train_loss, label='Train loss')
+    plt.plot(valid_loss, label='Valid loss')
+    plt.legend()
+    plt.grid()
+
+    plt.show()
+
+    plt.figure(figsize=(16, 8))
+
+    plt.title(title + ' accuracy')
+
+    plt.plot(train_accuracy, label='Train accuracy')
+    plt.plot(valid_accuracy, label='Valid accuracy')
+    plt.legend()
+    plt.grid()
+
+    plt.show()
+
+# Learn NN for the specified number of epochs
+def whole_train_valid_cycle(model,
+                            num_epochs,
+                            title,
+                            train_loader,
+                            test_loader,
+                            device,
+                            optimizer):
+    train_loss_history, valid_loss_history = [], []
+    train_accuracy_history, valid_accuracy_history = [], []
+
+    for epoch in range(num_epochs):
+        train_loss, train_accuracy = train(model, train_loader, device, optimizer)
+        valid_loss, valid_accuracy = evaluate(model, test_loader, device)
+
+        train_loss_history.append(train_loss)
+        valid_loss_history.append(valid_loss)
+
+        train_accuracy_history.append(train_accuracy)
+        valid_accuracy_history.append(valid_accuracy)
+
+        clear_output()
+
+        plot_stats(
+            train_loss_history, valid_loss_history,
+            train_accuracy_history, valid_accuracy_history,
+            title
+        )
+
+# Download user's data from the SQL database
 def get_user_df():
 
     # Установка соединения с базой данных
@@ -17,7 +200,7 @@ def get_user_df():
     print(user.head())
     return user
 
-
+# Download posts data from the SQL database
 def get_post_df():
 
     # Установка соединения с базой данных
@@ -25,14 +208,23 @@ def get_post_df():
     print(post.head())
     return post
 
+# Download BERT embeddings for posts from the SQL database (prepared in advance)
+def get_embedd_df():
 
-# Подготовка фичей по данным от сервера
-def get_features_df(feed_n_lines=1000000):
+    # Загрузка эмбеддингов из файла в Kaggle Inputs
+    embedds = pd.read_sql(f"SELECT * FROM {os.getenv('EMBEDD_DF_NAME')};", os.getenv('DATABASE_URL'))
+    print(embedds.head())
+    return embedds
+
+# Obtaining DF with vector of all features for NN learning
+def get_vector_df(feed_n_lines=1024000):
 
     # Установка соединения с базой данных
     user = get_user_df()
     post = get_post_df()
+    embedd = get_embedd_df()
     feed = pd.read_sql(f"SELECT * FROM public.feed_data order by random() LIMIT {feed_n_lines};", os.getenv('DATABASE_URL'))
+
     feed = feed.drop_duplicates()
     print(feed.head())
 
@@ -42,16 +234,9 @@ def get_features_df(feed_n_lines=1000000):
 
     categorical_columns = []
     categorical_columns.append('country')
-    #categorical_columns.append('os')
-    #categorical_columns.append('source')
+    # categorical_columns.append('os')
+    # categorical_columns.append('source')
     categorical_columns.append('exp_group')  # разобью по группам категориальный признак
-
-    #print(categorical_columns)
-
-    # for col in categorical_columns:
-    #     one_hot = pd.get_dummies(new_user[col], prefix=col, drop_first=True, dtype='int64')
-    #
-    #     new_user = pd.concat((new_user.drop(col, axis=1), one_hot), axis=1)
 
     # Добавил булевый признак по главным городам в представленных странах, остальных городов слишком много
     capitals = ['Moscow', 'Saint Petersburg', 'Kyiv', 'Minsk', 'Baku', 'Almaty', 'Astana', 'Helsinki',
@@ -68,103 +253,57 @@ def get_features_df(feed_n_lines=1000000):
     # Преобразуем только числовые столбцы в float32
     new_user[numeric_columns] = new_user[numeric_columns].astype('float32')
 
-    #готовая таблица для обучения
+    # готовая таблица User для обучения
     new_user.head()
     num_user_full = new_user['user_id'].nunique()
     print(f'Число уникальных юзеров:{num_user_full}')
 
-    # Теперь обработаю текстовую колонку при помощи TF-IDF. Текстов много, тем - тоже, потому выделю две фичи:
-    # по 5 ключевым словам выдам медианный TF-IDF и максимальный, плюс средний показатель по 10 словам в топе.
-    # Буду считать их за маркеры аутентичности статьи. В дальнейшем надо выявить предпочтения юзеров: как много лайкают
-    # вообще и в топе - по какой теме.
-
-    num_post_full = post['post_id'].nunique()
-    print(f'Число уникальных постов:{num_post_full}')
-
-    # Зафиттим наши данные в TfidfVectorizer
-    tfidf = TfidfVectorizer(stop_words='english', strip_accents='unicode', min_df = 0.01, max_features = 2000)
-    tfidf_matrix = tfidf.fit_transform(post['text'].fillna('unknown'))
-    feature_names = tfidf.get_feature_names_out()
-    tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf.get_feature_names_out())
-    tfidf_df.reset_index(drop=True, inplace=True)
-    post.reset_index(drop=True, inplace=True)
-
-    # Выделяем главные значаящие слова по методу PCA - от максимальной дисперсии
-    # Далее берем топ значимых TF-IDF для PCA фичей, и по ним делаем кластеризацию
-    # Это будет новый категориальный признак
-
-    # Стандартизация данных - вычитаем среднее значение при помощи скейлера
-    scaler = StandardScaler()
-
-    # убрано .to_array(), использую датафрейм
-    X_scaled = scaler.fit_transform(tfidf_df)
-
-    # Применение PCA
-    pca = PCA(n_components=200)
-
-    X_pca = pca.fit_transform(X_scaled)
-    X_pca = pd.DataFrame(X_pca)
-    X_pca = X_pca.add_prefix('PCA_')
-
-    # Коэффициенты главных компонент
-    components = pca.components_
-
-    # Создание DataFrame для значимости
-    importance_df = pd.DataFrame(tfidf_df, columns=tfidf.get_feature_names_out())
-
-    # Суммирование абсолютных значений коэффициентов для каждой колонки
-    importance_scores = importance_df.abs().sum(axis=0)
-
-    # Сортировка по значимости
-    sorted_importance = importance_scores.sort_values(ascending=False)
-
-    # Получение топ имен колонок, отсортированных по значимости
-    top_features = sorted_importance[:1000].index.tolist()
-
-    print("Наиболее значимые слова:", top_features)
-
-    # Примени кластеризацию DBSCAN - т.к. не занем сколько и каких кластеров есть
-    #clustering = DBSCAN(eps=0.5, min_samples=4).fit_predict(tfidf_df[top_features])
-    clustering = KMeans(n_clusters=10, random_state=42, max_iter=1000).fit_predict(tfidf_df[top_features])
-    clusters = pd.DataFrame({"clusters": clustering})
-
-    print(clusters.nunique())
-
-    # categorical_columns.append('clusters')
-
-    one_hot = pd.get_dummies(clusters['clusters'], prefix='cluster', drop_first=True, dtype='int32')
-
-    post = pd.concat((post, one_hot), axis=1)
-
-    # # Сократим топ имен колонок, отсортированных по значимости
-    # top_features = sorted_importance[:50].index.tolist()
-    #
-    # # #Присоединим к таблице постов новые признаки от TF-IDF по ключевым словам
-    # post = pd.concat([post, tfidf_df[top_features]], axis=1)
-
-    # # Вещенственные метрики для индикации аутентичности поста, по TF-IDF ключевых слов
-
-    # post['tf_idf_median_5'] = 0
-    # post['tf_idf_mean_20'] = 0
-
-    # for index, value in post['text'].items():  # смотрим tf-idf только по фильмам
-
-    #     words = pd.DataFrame(tfidf_matrix[index].T.todense(),
-    #                          index=feature_names,
-    #                          columns=['tfidf'])
-
-    #     words_sort = words.sort_values('tfidf', ascending=False).head(20)
-    #     post['tf_idf_median_5'].iloc[index] = words_sort.head(5).median()
-    #     post['tf_idf_mean_20'].iloc[index] = words_sort.mean()
-
-    # print(post['tf_idf_median_5'].head(30))
-
-    # Длина текста поста - новый признак
+    # Длина текста поста - новый признак для таблицы Post
     post['text_length'] = post['text'].apply(len)
     # post = post.rename(columns={"text": "text_feature"})
 
     # Убираем исходные тексты из признаков
     post = post.drop(['text'], axis=1)
+
+    # Конкатенируем датафрейм Post с фичами-эмбеддингами
+    embedd = embedd.add_prefix('embed_')
+
+    # Стандартизация данных - вычитаем среднее значение при помощи скейлера
+    scaler = StandardScaler()
+
+    # убрано .to_array(), использую датафрейм
+    embedd_scaled = scaler.fit_transform(embedd)
+
+    # Применение PCA
+    pca = PCA(n_components=200)
+
+    X_pca = pca.fit_transform(embedd_scaled)
+    X_pca = pd.DataFrame(X_pca)
+    X_pca = X_pca.add_prefix('PCA_')
+
+    # # Коэффициенты главных компонент
+    # components = pca.components_
+    # # Создание DataFrame для значимости
+    # importance_df = pd.DataFrame(components, columns=embedd.columns)
+
+    # #print(importance_df.head())
+
+    # # Суммирование абсолютных значений коэффициентов для каждой колонки
+    # importance_scores = importance_df.abs().sum(axis=0)
+
+    # # Сортировка по значимости
+    # sorted_importance = importance_scores.sort_values(ascending=False)
+
+    # print(sorted_importance.head(10))
+
+    # # Получение топ имен колонок, отсортированных по значимости
+    # top_features = sorted_importance[:300].index.tolist()
+
+    # Конкатенирую с топом эмбеддингов, максимально вносящих вклад в PCA фичи
+    post = pd.concat([post, X_pca], axis=1, join='inner')
+    embedd_columns = embedd.columns
+
+    print(post.head())
 
     # разобью по группам категориальный признак из Post
     categorical_columns.append('topic')
@@ -176,7 +315,7 @@ def get_features_df(feed_n_lines=1000000):
     post[numeric_columns] = post[numeric_columns].astype('float32')
 
     # Выбираем только числовые столбцы таблицы Feed для преобразования
-    numeric_columns = feed.select_dtypes(include=['float64', 'int64' ]).columns
+    numeric_columns = feed.select_dtypes(include=['float64', 'int64']).columns
 
     # Преобразуем только числовые столбцы в float32
     feed[numeric_columns] = feed[numeric_columns].astype('float32')
@@ -184,7 +323,7 @@ def get_features_df(feed_n_lines=1000000):
     # Ренейм action на случай пересечений с колонками TD-IDF
     feed = feed.rename(columns={"action": "action_class"})
 
-    #Теперь нужно объединить все с таблицей Feed, чтобы получить мастер-таблицу для трейна
+    # Теперь нужно объединить все с таблицей Feed, чтобы получить мастер-таблицу для трейна
 
     df = pd.merge(
         feed,
@@ -206,7 +345,7 @@ def get_features_df(feed_n_lines=1000000):
     df['post_likes'] = df.groupby('post_id')['action_class'].transform('sum')
 
     # Признак-счетчик просмотров для постов
-    #df['views_per_post'] = df.groupby('post_id')['action_class'].apply(lambda x: 1 if x == 0 else 0).transform('sum')
+    # df['views_per_post'] = df.groupby('post_id')['action_class'].apply(lambda x: 1 if x == 0 else 0).transform('sum')
     df['action_class'] = df.action_class.apply(lambda x: 0 if x == 'like' or x == 1 else 1)
     df['post_views'] = df.groupby('post_id')['action_class'].transform('sum')
     df['action_class'] = df.action_class.apply(lambda x: 1 if x == 'like' or x == 1 else 0)
@@ -225,24 +364,20 @@ def get_features_df(feed_n_lines=1000000):
     df['year'] = df.timestamp.dt.year
 
     # Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра, в часах
-    df['time_indicator'] = (df['year'] - 2021)*360*24 + df['month']*30*24 + df['day']*24 + df['hour']
+    df['time_indicator'] = (df['year'] - 2021) * 360 * 24 + df['month'] * 30 * 24 + df['day'] * 24 + df['hour']
 
     categorical_columns.append('month')  # разобью по группам month  из Feed
-    #categorical_columns.append('year')  # разобью по группам year из Feed
-
-    # OneHotEncoding по month
-    # one_hot = pd.get_dummies(df['month'], prefix='month', drop_first=True, dtype='int32')
-    #
-    # df = pd.concat((df.drop('month', axis=1), one_hot), axis=1)
 
     # Генерим фичи: топ topic для пользователей из feed по лайкам/просмотрам
-    main_liked_topics = df[df['action_class'] == 1].groupby(['user_id'])['topic'].agg(lambda x: np.random.choice(x.mode())).to_frame().reset_index()
+    main_liked_topics = df[df['action_class'] == 1].groupby(['user_id'])['topic'].agg(
+        lambda x: np.random.choice(x.mode())).to_frame().reset_index()
     main_liked_topics = main_liked_topics.rename(columns={"topic": "main_topic_liked"})
-    main_viewed_topics = df[df['action_class'] == 0].groupby(['user_id'])['topic'].agg(lambda x: np.random.choice(x.mode())).to_frame().reset_index()
+    main_viewed_topics = df[df['action_class'] == 0].groupby(['user_id'])['topic'].agg(
+        lambda x: np.random.choice(x.mode())).to_frame().reset_index()
     main_viewed_topics = main_viewed_topics.rename(columns={"topic": "main_topic_viewed"})
 
     # Присоединяем к мастер-таблице
-    df = pd.merge(df, main_liked_topics,  on='user_id', how='left')
+    df = pd.merge(df, main_liked_topics, on='user_id', how='left')
     df = pd.merge(df, main_viewed_topics, on='user_id', how='left')
 
     # Заполняем пропуски самой частой категорией
@@ -258,13 +393,13 @@ def get_features_df(feed_n_lines=1000000):
     likes_per_user = likes_per_user.rename(columns={"action_class": "likes_per_user"})
 
     # Признак-счетчик просмотров для юзеров
-    #df['views_per_user'] = df.groupby('user_id')['action_class'].apply(lambda x: 1 if x == 0 else 0).transform('sum')
+    # df['views_per_user'] = df.groupby('user_id')['action_class'].apply(lambda x: 1 if x == 0 else 0).transform('sum')
     df['action_class'] = df.action_class.apply(lambda x: 0 if x == 'like' or x == 1 else 1)
     df['views_per_user'] = df.groupby('user_id')['action_class'].transform('sum')
     df['action_class'] = df.action_class.apply(lambda x: 1 if x == 'like' or x == 1 else 0)
 
     # Присоединяем к мастер-таблице
-    df = pd.merge(df, likes_per_user,  on='user_id',how='left')
+    df = pd.merge(df, likes_per_user, on='user_id', how='left')
 
     # Выбираем только числовые столбцы для преобразования
     numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns
@@ -290,89 +425,95 @@ def get_features_df(feed_n_lines=1000000):
     # Преобразуем численные категориальные в int32
     df[['exp_group', 'month']] = df[['exp_group', 'month']].astype('int32')
 
-    # сохраняю с user_id для генерации таблицы признаков для сервера
-    df.to_csv('df_to_learn.csv', sep=';', index=False)
+    print(categorical_columns)
 
-    # Удаляю ненужный более user_id и post_id
-    df = df.drop(['user_id', 'post_id'], axis=1)
+    # One-hot encoding для всех категориальных колонок
+    for col in categorical_columns:
+        one_hot = pd.get_dummies(df[col], prefix=col, drop_first=True, dtype='int32')
+
+        df = pd.concat((df.drop(col, axis=1), one_hot), axis=1)
+
+    # Оставляю user_id и post_id, их нужно будет дропнуть при создании датасета
+    # df = df.drop(['user_id', 'post_id'], axis=1)
+
+    df = df.astype('float32')
+    print('Итоговый датасет:')
+    print(df.head)
+
+    # сохраняю с user_id для генерации таблицы признаков для сервера
+    # df.to_csv('df_to_learn.csv', sep=';', index=False)
 
     # Получение общего объема памяти, занимаемой DataFrame
     total_memory = df.memory_usage(deep=True).sum()
     print(f"\nОбщий объем памяти, занимаемой DataFrame: {total_memory} байт")
     print(df.dtypes)
 
-    return df, categorical_columns
+    return df, categorical_columns, post
 
-#Глобальный Hitrate на тесте для оценки финального качества
-def calculate_hitrate(y_true, y_pred_proba, k=5):
-    hits = 0
-    n = len(y_true)
 
-    for i in range(n):
-        # Получаем индексы топ-k вероятностей для текущего пользователя
-        top_k_indices = np.argsort(y_pred_proba[i])[-k:]  # топ-k для текущего пользователя
-
-        # Проверяем, попадает ли хотя бы одно предсказанное значение в класс 1 (лайк)
-        if any(y_true[i] == 1 for idx in top_k_indices):  # Сравниваем класс y_true с топ-k предсказаний
-            hits += 1
-
-    # Возвращаем долю пользователей, для которых был хотя бы один лайк в топ-k
-    hitrate = hits / n
-
-    return hitrate
-def learn_model(df_size = 1000000):
+def learn_model(df_size=1024000, n_epochs=20):
 
     # Наберем необходимые записи
-    data, cat_columns = get_features_df(feed_n_lines=df_size)
+    data, cat_columns, post = get_vector_df(feed_n_lines=df_size)
 
-    X = data.drop('target', axis=1)
+    # Dataset init from class
+    dataset = Recommend_Data(data)
+
+    # Datasest random split, 20% for test
+    train_dataset, test_dataset = random_split(dataset,
+                                               (int(len(dataset) * 0.8), len(dataset) - int(len(dataset) * 0.8)))
+
+    # 64 batch size - optimal (empyrical)
+    train_loader = DataLoader(train_dataset, batch_size=64, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=64, pin_memory=True)
+
+    # Choosing device: Cuds if presented unless CPU
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    print(device)
+
+    # Creating NN for learning
+    model = create_nn_to_classify()
+    model = model.to(device)
+
+    # Adam optimizer with default learning rate
+    optimizer = Adam(model.parameters(), lr=1e-3)
+
+    whole_train_valid_cycle(model,
+                            n_epochs,
+                            'Learning post recommendations by likes',
+                            train_loader,
+                            test_loader,
+                            device,
+                            optimizer)
+
+    torch.save(model.state_dict(), '/nn_estinmate_likes_200xPCA_embedds_1024k_drop_03_02.pt')
+
+
+    # Estimate accuracy, F-measure and AUC based on the whole dataseb
+
+    X = data.drop(['target', 'user_id', 'post_id'], axis=1)
     y = data.target
+    model.eval().cpu()
 
-    # Разделение данных на обучающую и тестовую выборки без перемешивания
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+    X_tens = torch.FloatTensor(X.values)
+    F_X = torch.round(torch.sigmoid(model(X_tens))).detach().numpy().astype("float32")
+    Prob_X = torch.sigmoid(model(X_tens)).detach().numpy().astype("float32")
 
-    search = CatBoostClassifier(verbose=False,
-                                depth=6,
-                                learning_rate=0.2,
-                                iterations=200,
-                                l2_leaf_reg=2000,
-                                cat_features=cat_columns)
+    # F-measure
+    f1_loc_tr = round(f1_score(y,
+                               F_X,
+                               average='weighted'), 5)
+    print(f'F-measure for FC NN: {f1_loc_tr}')
 
-    search.fit(X_train, y_train)
+    # AUC
+    fpr, tpr, thd = roc_curve(y, Prob_X)
+    print(f'AUC for FC NN: {auc(fpr, tpr):.5f}')
 
-    # Сохраняю модель
-    search.save_model('catboost_model_final_proj', format="cbm")
+    acc = accuracy_score(y, F_X)
+    print(f'Accuracy for FC NN: {acc:.5f}')
 
-    # Строю распределение фичей по их важности для классификации
-    feature_imp = search.feature_importances_
-
-    forest_importances = pd.Series(feature_imp, index=X.columns)
-    fig, ax = plt.subplots()
-    forest_importances.plot.bar()
-    ax.set_title("Feature importances Catboost")
-    ax.set_ylabel("Mean decrease in impurity")
-    fig.tight_layout()
-
-    # F-меры на трейне и тесте
-    f1_loc_tr = round(f1_score(y_train, search.predict(X_train), average='weighted'), 5)
-    f1_loc_test = round(f1_score(y_test, search.predict(X_test), average='weighted'), 5)
-    print(f'F-мера для бустинга на трейне: {f1_loc_tr}')
-    print(f'F-мера для бустинга на тесте: {f1_loc_test}')
-
-    # AUC на трейне
-    fpr, tpr, thd = roc_curve(y_train, search.predict_proba(X_train)[:, 1])
-    print(f'AUC для CatBoost на трейне: {auc(fpr, tpr):.5f}')
-
-    # AUC на тесте
-    fpr, tpr, thd = roc_curve(y_test, search.predict_proba(X_test)[:, 1])
-    print(f'AUC для CatBoost на тесте: {auc(fpr, tpr):.5f}')
-
-    hitrate = calculate_hitrate(y_test.values, search.predict_proba(X_test)[:, 1], k = 5)
-
-    print(f'Hitrate для бустинга на тесте: {hitrate}')
-
-    # ROC кривая для теста
+    # ROC curve
     RocCurveDisplay(fpr=fpr, tpr=tpr).plot()
-    plt.show()
 
-    return search, data, cat_columns
+    return data, post, model

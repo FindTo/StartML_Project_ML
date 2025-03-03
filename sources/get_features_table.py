@@ -2,73 +2,155 @@ import pandas as pd
 from learn_model import get_user_df
 from sqlalchemy import create_engine
 import os
-def get_user_df():
-
-    # Установка соединения с базой данных
-    user = pd.read_sql("SELECT * FROM public.user_data;", os.getenv('DATABASE_URL'))
-    print(user.head())
-    return user
-
 
 def get_post_df():
 
-    # Установка соединения с базой данных
+    # Obtain db connection
     post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
     print(post.head())
     return post
 
-# Получить полную таблицу с фичами на всех юзеров, опираясь на датафрейм с обучения
-def get_user_features() -> pd.DataFrame:
+# Obtain low-weight tables for all posts and users with features for NN input + listed NN input names
+def get_user_post_features() -> (pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-    # Выгружаем таблицу user с сервера
-    user = get_user_df()
-    print(user.user_id.nunique())
-
-    # Читаем датафрейм с обучения модели
-    #data = pd.read_csv('df_to_learn.csv', sep=';')
-    data = load_features()
+    # Read big DF from NN learning, with all features concatenated
+    data = pd.read_csv('df_with_200xPCA_embed_1024k.csv', sep=';')
+    # data = load_features()
 
     print(data.shape)
     print(data.head())
     print(data.columns)
 
-    # Так же в скачанном user обновляю параметр city
+    # Saving original list of input features for NN apply
+    list_of_columns_learning = data.columns.to_list()
+    df_columns_learning = pd.DataFrame(list_of_columns_learning).drop([0, 1, 2], axis=0)
+
+    # Choosing features to be dropped in DF from learning
+    list_to_drop_user = ['post_id',
+                         'text_length',
+                         'target',
+                         'gender',
+                         'age',
+                         'city_capital',
+                         'post_likes',
+                         'post_views',
+                         'hour',
+                         'day',
+                         'time_indicator',
+                         'country_Belarus',
+                         'country_Cyprus',
+                         'country_Estonia',
+                         'country_Finland',
+                         'country_Kazakhstan',
+                         'country_Latvia',
+                         'country_Russia',
+                         'country_Switzerland',
+                         'country_Turkey',
+                         'country_Ukraine',
+                         'exp_group_1',
+                         'exp_group_2',
+                         'exp_group_3',
+                         'exp_group_4',
+                         'topic_covid',
+                         'topic_entertainment',
+                         'topic_movie',
+                         'topic_politics',
+                         'topic_sport',
+                         'topic_tech',
+                         'month_11',
+                         'month_12'
+                         ]
+
+    for i in range(200):
+        list_to_drop_user.append(f'PCA_{i}')
+
+    # Drop post-related and time-related features
+    user_df_new = data.drop(list_to_drop_user, axis=1)
+
+    # Download original user table
+    user = get_user_df()
+    print(user.user_id.nunique())
+
+    # Updating 'city' feature to 'city_capital'
     capitals = ['Moscow', 'Saint Petersburg', 'Kyiv', 'Minsk', 'Baku', 'Almaty', 'Astana', 'Helsinki',
                 'Istanbul', 'Ankara', 'Riga', 'Nicosia', 'Limassol', 'Zurich', 'Bern', 'Tallin']
     user['city'] = user.city.apply(lambda x: 1 if x in capitals else 0)
     user = user.rename(columns={"city": "city_capital"})
 
-    # Убераю лишние для модели признаки
+    # Drop unnecessary features
     user = user.drop(['os', 'source'], axis=1)
 
-    # Конвертация численных во float32 для модели
-    numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
-    user[numeric_columns] = user[numeric_columns].astype('float32')
+    # One-hot encoding for categorial features in user table
+    user_categorial_columns = ['country', 'exp_group']
 
-    # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
-    user = user.combine_first(data)
+    for col in user_categorial_columns:
 
-    # Конвертация категориального численного в int32 для модели
-    user['exp_group'] = user['exp_group'].astype('int32')
+        one_hot = pd.get_dummies(user[col], prefix=col, drop_first=True, dtype='int32')
+        user = pd.concat((user.drop(col, axis=1), one_hot), axis=1)
 
-    print(user.shape)
-    print(user.main_topic_liked.isna().sum())
-    print(user.user_id.nunique())
-    print(user.post_id.nunique())
-    print(data.user_id.nunique())
+    # Convert user to float32
+    user = user.astype('float32')
 
-    return user
+    # Creating full DF with all users and features
+    df_user_full = user.merge(user_df_new, on='user_id', how='left')
+    df_user_full = df_user_full.drop_duplicates()
+    print(df_user_full.head())
 
-def df_to_sql(df):
+    # Fill empty features after merge with modes/mean values
+    new_user_columns = ['main_topic_viewed_covid',
+                        'main_topic_viewed_entertainment', 'main_topic_viewed_movie',
+                        'main_topic_viewed_politics', 'main_topic_viewed_sport',
+                        'main_topic_viewed_tech', 'main_topic_liked_covid',
+                        'main_topic_liked_entertainment', 'main_topic_liked_movie',
+                        'main_topic_liked_politics', 'main_topic_liked_sport',
+                        'main_topic_liked_tech']
 
-    # Пробую записать таблицу в Sql
+    for col in new_user_columns:
+        df_user_full[col] = df_user_full[col].fillna(df_user_full[col].mode()[0])
+
+    df_user_full['views_per_user'] = df_user_full['views_per_user'].fillna(df_user_full['views_per_user'].mean())
+    df_user_full['likes_per_user'] = df_user_full['likes_per_user'].fillna(df_user_full['likes_per_user'].mean())
+
+    total_memory = df_user_full.memory_usage(deep=True).sum()
+    print(f"\ndf_user_full total memory: {total_memory} bytes")
+
+    # Read 'post' df with embedding-based PCA features
+    post = pd.read_csv('post_with_200xPCA_embed_1024k.csv', sep=';')
+
+    # One-hot encoding for 'topic' feature
+    one_hot = pd.get_dummies(post['topic'], prefix='topic', drop_first=True, dtype='float32')
+    post = pd.concat((post.drop('topic', axis=1), one_hot), axis=1)
+
+    print(post.head())
+
+    # Choosing post-related features from big learning df
+    df_post_new = data[['post_id', 'post_likes', 'post_views']].drop_duplicates()
+
+    # Merge feed-based post features with original DF with PCA
+    df_post_full = post.merge(df_post_new, on='post_id', how='left')
+
+    # Fill empty values with mean
+    df_post_full['post_likes'] = df_post_full['post_likes'].fillna(df_post_full['post_likes'].mean())
+    df_post_full['post_views'] = df_post_full['post_views'].fillna(df_post_full['post_views'].mean())
+
+    total_memory = df_post_full.memory_usage(deep=True).sum()
+    print(f"\nPost DF total memory: {total_memory} bytes")
+
+    return df_user_full, df_post_full, df_columns_learning
+
+def df_to_sql(df, name):
+
+    # Try to write DF into the db by chunks
     engine = create_engine(os.getenv('DATABASE_URL'))
     conn = engine.connect().execution_options(stream_results=True)
-
+    chunks = []
     try:
 
         print(("to_sql - start writing"))
-        df.to_sql(os.getenv('FEATURES_DF_NAME'), con=engine, if_exists='replace', index=False)
+        df.to_sql(name,
+                  con=engine,
+                  if_exists='replace',
+                  index=False)
         print(("to_sql - successfully written"))
         conn.close()
 
@@ -79,7 +161,35 @@ def df_to_sql(df):
 
     return 0
 
-def load_features() -> pd.DataFrame:
+
+def csv_to_sql(csv_name,table_name):
+
+
+    # Try to write csv file into the db by chunks
+    engine = create_engine(os.getenv('DATABASE_URL'))
+    conn = engine.connect().execution_options(stream_results=True)
+    try:
+
+        print(("to_sql - start writing"))
+
+        chunksize = int(os.getenv('CHUNKSIZE'))
+
+        for chunk in pd.read_csv(csv_name, chunksize=chunksize):
+
+            chunk.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
+
+        print(("to_sql - successfully written"))
+        conn.close()
+
+    except:
+
+        print(("to_sql - failed to write"))
+        conn.close()
+
+    return 0
+
+
+def load_features(features_name) -> pd.DataFrame:
 
     engine = create_engine(os.getenv('DATABASE_URL'))
     conn = engine.connect().execution_options(stream_results=True)
@@ -88,7 +198,7 @@ def load_features() -> pd.DataFrame:
     try:
 
         print(("from sql - start loading"))
-        for chunk_dataframe in pd.read_sql(os.getenv('FEATURES_DF_NAME'),
+        for chunk_dataframe in pd.read_sql(features_name,
                                            conn, chunksize=int(os.getenv('CHUNKSIZE'))):
 
             chunks.append(chunk_dataframe)
@@ -97,7 +207,7 @@ def load_features() -> pd.DataFrame:
 
     except Exception as e:
 
-        raise RuntimeError(f"Ошибка при загрузке данных: {e}")
+        raise RuntimeError(f"Data loading error: {e}")
 
     finally:
         conn.close()

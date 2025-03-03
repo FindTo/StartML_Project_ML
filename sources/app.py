@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-
 # Загрузка переменных окружения
 load_dotenv()
 
@@ -14,9 +13,10 @@ from table_feed import Feed
 from schema import UserGet, PostGet, FeedGet
 from typing import List
 from datetime import datetime
-from get_features_table import get_user_features
-from learn_model import get_post_df
+from get_features_table import load_features, get_post_df
 from get_predict_by_model import load_models
+import torch
+import os
 
 app = FastAPI()
 
@@ -28,9 +28,13 @@ columns = ['topic', 'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
            'main_topic_liked', 'main_topic_viewed', 'views_per_user',
            'likes_per_user']
 
-user_df = get_user_features()
+user_df = load_features(os.getenv('USER_FEATURES_DF_NAME'))
 
-post_df = get_post_df()
+post_df = load_features(os.getenv('POST_FEATURES_DF_NAME'))
+
+nn_input_columns_df = load_features(os.getenv('NN_INPUT_COLUMNS_DF_NAME'))
+
+post_original_df = get_post_df()
 
 model = load_models()
 
@@ -90,87 +94,73 @@ def get_post_feed(id: int, limit: int = 10, db: Session = Depends(get_db)):
 @app.get("/post/recommendations/", response_model=List[PostGet])
 def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
-    # Выбираю записи из таблицы под заданного юзера
-    user_features = user_df[user_df['user_id'] == id][['user_id', 'gender', 'age', 'country',
-                                                   'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed',
-                                                   'views_per_user', 'likes_per_user']]
+    # Finding user in the prepared df
+    user_features = user_df[user_df['user_id'] == id].reset_index(drop=True)
 
-    # Фильтр на грязные даные после мержа df и user
-    user_features['main_topic_liked'] = user_features['main_topic_liked'].apply(
-        lambda x: user_features['main_topic_liked'].mode()[0])
-    user_features['main_topic_viewed'] = user_features['main_topic_viewed'].apply(
-        lambda x: user_features['main_topic_viewed'].mode()[0])
-    user_features['views_per_user'] = user_features['views_per_user'].apply(
-        lambda x: user_features['views_per_user'].mode()[0])
-    user_features['likes_per_user'] = user_features['likes_per_user'].apply(
-        lambda x: user_features['likes_per_user'].mode()[0])
-
-    user_features = user_features.iloc[0].to_frame().T.reset_index()
-
-    # Набираю признаки из time
+    # Getting time-related features
     user_features['hour'] = time.hour
-    user_features['month'] = time.month
     user_features['day'] = time.day
 
-    # Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра, в часах
+    # Only 3 months (10, 11, 12) available
+
+    if time.month == 11:
+
+        user_features['month_11'] = 1.0
+        user_features['month_12'] = 0.0
+
+    elif time.month == 12:
+
+        user_features['month_11'] = 0.0
+        user_features['month_12'] = 1.0
+
+    else:
+
+        user_features['month_11'] = 0.0
+        user_features['month_12'] = 0.0
+
+    # Time indicator from the beginning of 2021 up to now
     user_features['time_indicator'] = (time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
 
-    logger.info(user_features)
+    #logger.info(user_features)
 
-    # Набираю пул постов для предсказания: для юзера они должны быть незнакомы и более-менее пролайканы и просмотрены
-    post_pull = user_df[(user_df['user_id'] != user_features.iloc[0]['user_id'])
-                     & (user_df['post_views'] > 20)
-                     & (user_df['post_likes'] > 10)
-                     ][['post_id', 'post_likes', 'post_views', 'text_length',
-                        'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-                        'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-                        'topic'
-                        ]].drop_duplicates('post_id').reset_index()
+    # Post pull filtered by likes and views
+    post_pull = post_df[(post_df['post_views'] > 80) & (post_df['post_likes'] > 5)]
 
-    # Мержу запись по юзеру с постами и заполняю пропуски данными юзера
-    X = post_pull.combine_first(user_features).drop(['user_id', 'post_id'], axis=1)
-    X['age'] = X['age'].fillna(X['age'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['country'] = X['country'].fillna(X['country'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['day'] = X['day'].fillna(X['day'].mode()[0])
-    X['exp_group'] = X['exp_group'].fillna(X['exp_group'].mode()[0])
-    X['gender'] = X['gender'].fillna(X['gender'].mode()[0])
-    X['hour'] = X['hour'].fillna(X['hour'].mode()[0])
-    X['month'] = X['month'].fillna(X['month'].mode()[0])
-    X['likes_per_user'] = X['likes_per_user'].fillna(X['likes_per_user'].mode()[0])
-    X['main_topic_liked'] = X['main_topic_liked'].fillna(X['main_topic_liked'].mode()[0])
-    X['main_topic_viewed'] = X['main_topic_viewed'].fillna(X['main_topic_viewed'].mode()[0])
-    X['time_indicator'] = X['time_indicator'].fillna(X['time_indicator'].mode()[0])
-    X['views_per_user'] = X['views_per_user'].fillna(X['views_per_user'].mode()[0])
+    # Merge post pull with user vector and fill the gaps
+    X = post_pull.combine_first(user_features)
 
-    # Привожу к формату признаков модели
-    X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-       'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-       'exp_group', 'month']] = X[
-        ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-         'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-         'exp_group', 'month']].astype('int32')
+    #logger.info(X.head())
 
-    X = X[columns]
+    # Fill the gaps with user features from the first row
+    for col in user_features.columns.to_list():
+        X[col] = X[col].iloc[0]
 
-    X['ax'] = model.predict_proba(X)[:, 1]
+    # Drop unnecessary IDs, indexes are by post df
+    X.drop(['post_id', 'user_id'], axis=1, inplace=True)
 
+    # Arrange column in accordance with NN input
+    X = X[nn_input_columns_df['0'].to_list()]
+
+    # Convert df to tensor and make predictions using NN model
+    X_tens = torch.FloatTensor(X.values)
+    X['ax'] = torch.sigmoid(model(X_tens)).detach().numpy().astype("float32")
+
+    # Return post_id columns
     X = X.combine_first(post_pull)
 
-    # Первые n=limit постов из пула с максимальной вероятностью лайка
-    posts_recnd = X.drop_duplicates('post_id').sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
+    # First n=limit posts from pull with max like probability
+    posts_recnd = X.sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
 
-    logger.info(posts_recnd)
+    #logger.info(posts_recnd)
 
     posts_recnd_list = []
 
-    # Набираю посты из скачанной таблицы постов
+    # Making response by Pydantic using the obtained post IDs
     for i in posts_recnd:
 
         posts_recnd_list.append(PostGet(id=i,
-                                        text=post_df[post_df['post_id'] == i].text.iloc[0],
-                                        topic=post_df[post_df['post_id'] == i].topic.iloc[0])
+                                        text=post_original_df[post_df['post_id'] == i].text.iloc[0],
+                                        topic=post_original_df[post_df['post_id'] == i].topic.iloc[0])
                                 )
 
     return posts_recnd_list
