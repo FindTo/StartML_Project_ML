@@ -124,7 +124,7 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
     #logger.info(user_features)
 
     # Post pull filtered by likes and views
-    post_pull = post_df[(post_df['post_views'] > 80) & (post_df['post_likes'] > 5)]
+    post_pull = post_df[(post_df['post_views'] > 80) & (post_df['post_likes'] > 12)]
 
     # Merge post pull with user vector and fill the gaps
     X = post_pull.combine_first(user_features)

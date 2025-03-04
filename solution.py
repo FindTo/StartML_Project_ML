@@ -6,19 +6,58 @@ from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
-from catboost import CatBoostClassifier
+import torch
+import torch.nn as nn
 import pandas as pd
 import os
 
 app = FastAPI()
 
 DATABASE_URL="postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
-FEATURES_DF_NAME="vladislav_lantsev_features_lesson_22"
+USER_FEATURES_DF_NAME="vladislav_lantsev_user_features_lesson_10_dl"
+POST_FEATURES_DF_NAME="vladislav_lantsev_post_features_lesson_10_dl"
+NN_INPUT_COLUMNS_DF_NAME="vladislav_lantsev_nn_input_columns_lesson_10_dl"
 CHUNKSIZE="200000"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-def load_features() -> pd.DataFrame:
+
+def create_nn_to_classify():
+    class FirstModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+            self.net = nn.Sequential(
+
+                nn.Linear(245, 256),
+                nn.BatchNorm1d(256),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(256, 128),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(128, 64),
+                nn.BatchNorm1d(64),
+                nn.ReLU(),
+                nn.Dropout(p=0.3),
+
+                nn.Linear(64, 16),
+                nn.BatchNorm1d(16),
+                nn.Sigmoid(),
+                nn.Dropout(p=0.2),
+
+                nn.Linear(16, 1),
+
+            )
+
+        def forward(self, x):
+            return self.net(x)
+
+    return FirstModel()
+def load_features(features_name) -> pd.DataFrame:
 
     engine = create_engine(DATABASE_URL)
     conn = engine.connect().execution_options(stream_results=True)
@@ -27,7 +66,7 @@ def load_features() -> pd.DataFrame:
     try:
 
         print(("from sql - start loading"))
-        for chunk_dataframe in pd.read_sql(FEATURES_DF_NAME,
+        for chunk_dataframe in pd.read_sql(features_name,
                                            conn, chunksize=int(CHUNKSIZE)):
 
             chunks.append(chunk_dataframe)
@@ -47,12 +86,17 @@ def get_model_path(path: str) -> str:
         MODEL_PATH = '/workdir/user_input/model'
     else:
         MODEL_PATH = path
+
     return MODEL_PATH
 
 def load_models():
-    model_path = get_model_path("catboost_model_final_proj")
-    model = CatBoostClassifier()
-    model.load_model(model_path)
+    model_path = get_model_path("nn_estinmate_likes_200xPCA_embedds_1024k_825_drop_03_02.pt")
+    model = create_nn_to_classify()
+
+    model.load_state_dict(torch.load(model_path,
+                    map_location=torch.device('cpu')))
+    model.eval()
+
     return model
 
 class PostGet(BaseModel):
@@ -62,76 +106,20 @@ class PostGet(BaseModel):
 
     class Config:
         orm_mode = True
+
 def get_user_df():
 
-    # Установка соединения с базой данных
+    # Obtain db connection
     user = pd.read_sql("SELECT * FROM public.user_data;", DATABASE_URL)
     print(user.head())
     return user
 
 def get_post_df():
 
-    # Установка соединения с базой данных
+    # Obtain db connection
     post = pd.read_sql("SELECT * FROM public.post_text_df;", DATABASE_URL)
     print(post.head())
     return post
-
-def get_user_features() -> pd.DataFrame:
-
-    # Выгружаем таблицу user с сервера
-    user = get_user_df()
-    print(user.user_id.nunique())
-
-    # Читаем датафрейм с обучения модели
-    #data = pd.read_csv('df_to_learn.csv', sep=';')
-    data = load_features()
-
-    print(data.shape)
-    print(data.head())
-    print(data.columns)
-
-    # Так же в скачанном user обновляю параметр city
-    capitals = ['Moscow', 'Saint Petersburg', 'Kyiv', 'Minsk', 'Baku', 'Almaty', 'Astana', 'Helsinki',
-                'Istanbul', 'Ankara', 'Riga', 'Nicosia', 'Limassol', 'Zurich', 'Bern', 'Tallin']
-    user['city'] = user.city.apply(lambda x: 1 if x in capitals else 0)
-    user = user.rename(columns={"city": "city_capital"})
-
-    # Убераю лишние для модели признаки
-    user = user.drop(['os', 'source'], axis=1)
-
-    # Конвертация численных во float32 для модели
-    numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
-    user[numeric_columns] = user[numeric_columns].astype('float32')
-
-    # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
-    user = user.combine_first(data)
-
-    # Конвертация категориального численного в int32 для модели
-    user['exp_group'] = user['exp_group'].astype('int32')
-
-    print(user.shape)
-    print(user.main_topic_liked.isna().sum())
-    print(user.user_id.nunique())
-    print(user.post_id.nunique())
-    print(data.user_id.nunique())
-
-    return user
-
-
-# Список признаков модели
-columns = ['topic', 'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-            'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-           'text_length', 'gender', 'age', 'country', 'exp_group', 'city_capital',
-           'post_likes', 'post_views', 'hour', 'month', 'day', 'time_indicator',
-           'main_topic_liked', 'main_topic_viewed', 'views_per_user',
-           'likes_per_user']
-
-user_df = get_user_features()
-
-post_df = get_post_df()
-
-model = load_models()
-
 
 def get_db():
     with SessionLocal() as db:
@@ -140,88 +128,81 @@ def get_db():
 @app.get("/post/recommendations/", response_model=List[PostGet])
 def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
-    # Выбираю записи из таблицы под заданного юзера
-    user_features = user_df[user_df['user_id'] == id][['user_id', 'gender', 'age', 'country',
-                                                   'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed',
-                                                   'views_per_user',
-                                                   'likes_per_user']]
+    # Finding user in the prepared df
+    user_features = user_df[user_df['user_id'] == id].reset_index(drop=True)
 
-    # Фильтр на грязные даные после мержа df и user
-    user_features['main_topic_liked'] = user_features['main_topic_liked'].apply(
-        lambda x: user_features['main_topic_liked'].mode()[0])
-    user_features['main_topic_viewed'] = user_features['main_topic_viewed'].apply(
-        lambda x: user_features['main_topic_viewed'].mode()[0])
-    user_features['views_per_user'] = user_features['views_per_user'].apply(
-        lambda x: user_features['views_per_user'].mode()[0])
-    user_features['likes_per_user'] = user_features['likes_per_user'].apply(
-        lambda x: user_features['likes_per_user'].mode()[0])
-
-    user_features = user_features.iloc[0].to_frame().T.reset_index()
-
-    # Набираю признаки из time
+    # Getting time-related features
     user_features['hour'] = time.hour
-    user_features['month'] = time.month
     user_features['day'] = time.day
 
-    # Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра, в часах
+    # Only 3 months (10, 11, 12) available
+
+    if time.month == 11:
+
+        user_features['month_11'] = 1.0
+        user_features['month_12'] = 0.0
+
+    elif time.month == 12:
+
+        user_features['month_11'] = 0.0
+        user_features['month_12'] = 1.0
+
+    else:
+
+        user_features['month_11'] = 0.0
+        user_features['month_12'] = 0.0
+
+    # Time indicator from the beginning of 2021 up to now
     user_features['time_indicator'] = (time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
 
-    logger.info(user_features)
+    # logger.info(user_features)
 
-    # Набираю пул постов для предсказания: для юзера они должны быть незнакомы и более-менее пролайканы и просмотрены
-    post_pull = user_df[(user_df['user_id'] != user_features.iloc[0]['user_id'])
-                     & (user_df['post_views'] > 20)
-                     & (user_df['post_likes'] > 10)
-                     ][['post_id', 'post_likes', 'post_views', 'text_length',
-                        'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-                        'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-                        'topic'
-                        ]].drop_duplicates('post_id').reset_index()
+    # Post pull filtered by likes and views
+    post_pull = post_df[(post_df['post_views'] > 80) & (post_df['post_likes'] > 12)]
 
-    # Мержу запись по юзеру с постами и заполняю пропуски данными юзера
-    X = post_pull.combine_first(user_features).drop(['user_id', 'post_id'], axis=1)
-    X['age'] = X['age'].fillna(X['age'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['country'] = X['country'].fillna(X['country'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['day'] = X['day'].fillna(X['day'].mode()[0])
-    X['exp_group'] = X['exp_group'].fillna(X['exp_group'].mode()[0])
-    X['gender'] = X['gender'].fillna(X['gender'].mode()[0])
-    X['hour'] = X['hour'].fillna(X['hour'].mode()[0])
-    X['month'] = X['month'].fillna(X['month'].mode()[0])
-    X['likes_per_user'] = X['likes_per_user'].fillna(X['likes_per_user'].mode()[0])
-    X['main_topic_liked'] = X['main_topic_liked'].fillna(X['main_topic_liked'].mode()[0])
-    X['main_topic_viewed'] = X['main_topic_viewed'].fillna(X['main_topic_viewed'].mode()[0])
-    X['time_indicator'] = X['time_indicator'].fillna(X['time_indicator'].mode()[0])
-    X['views_per_user'] = X['views_per_user'].fillna(X['views_per_user'].mode()[0])
+    # Merge post pull with user vector and fill the gaps
+    X = post_pull.combine_first(user_features)
 
-    # Привожу к формату признаков модели
-    X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-       'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-       'exp_group', 'month']] = X[
-        ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-         'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-         'exp_group', 'month']].astype('int32')
+    # logger.info(X.head())
 
-    X = X[columns]
+    # Fill the gaps with user features from the first row
+    for col in user_features.columns.to_list():
+        X[col] = X[col].iloc[0]
 
-    X['ax'] = model.predict_proba(X)[:, 1]
+    # Drop unnecessary IDs, indexes are by post df
+    X.drop(['post_id', 'user_id'], axis=1, inplace=True)
 
+    # Arrange column in accordance with NN input
+    X = X[nn_input_columns_df['0'].to_list()]
+
+    # Convert df to tensor and make predictions using NN model
+    X_tens = torch.FloatTensor(X.values)
+    X['ax'] = torch.sigmoid(model(X_tens)).detach().numpy().astype("float32")
+
+    # Return post_id columns
     X = X.combine_first(post_pull)
 
-    # Первые n=limit постов из пула с максимальной вероятностью лайка
-    posts_recnd = X.drop_duplicates('post_id').sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
+    # First n=limit posts from pull with max like probability
+    posts_recnd = X.sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
 
-    logger.info(posts_recnd)
+    # logger.info(posts_recnd)
 
     posts_recnd_list = []
 
-    # Набираю посты из скачанной таблицы постов
+    # Making response by Pydantic using the obtained post IDs
     for i in posts_recnd:
-
         posts_recnd_list.append(PostGet(id=i,
-                                        text=post_df[post_df['post_id'] == i].text.iloc[0],
-                                        topic=post_df[post_df['post_id'] == i].topic.iloc[0])
+                                        text=post_original_df[post_df['post_id'] == i].text.iloc[0],
+                                        topic=post_original_df[post_df['post_id'] == i].topic.iloc[0])
                                 )
 
     return posts_recnd_list
+
+# Download DFs with user, post and input NNs columns from the DB before service activation
+user_df = load_features(USER_FEATURES_DF_NAME)
+post_df = load_features(POST_FEATURES_DF_NAME)
+nn_input_columns_df = load_features(NN_INPUT_COLUMNS_DF_NAME)
+post_original_df = get_post_df()
+
+# Load NNs weights
+model = load_models()
