@@ -11,6 +11,7 @@ import torch.nn as nn
 import pandas as pd
 import os
 import hashlib
+from catboost import CatBoostClassifier
 
 app = FastAPI()
 
@@ -22,7 +23,7 @@ POST_FEATURES_DF_NAME_NN="vladislav_lantsev_post_features_lesson_10_dl"
 NN_INPUT_COLUMNS_DF_NAME="vladislav_lantsev_nn_input_columns_lesson_10_dl"
 NN_MODEL_NAME = "nn_estinmate_likes_200xPCA_embedds_1024k_825_drop_03_02.pt"
 
-
+BOOSTING_MODEL_NAME="catboost_model_final_proj"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -199,7 +200,9 @@ def load_models(group:int):
 
     if group == 0:
 
-
+        model_path = get_model_path(BOOSTING_MODEL_NAME)
+        model = CatBoostClassifier()
+        model.load_model(model_path)
 
     return model
 
