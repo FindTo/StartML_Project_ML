@@ -2,16 +2,15 @@ from learn_model import learn_model
 from get_features_table import df_to_sql, get_user_features, load_features
 from get_predict_by_model import  check_model_locally
 from dotenv import load_dotenv
+import pandas as pd
 
-#загрузка переменных окружения
 load_dotenv()
 
-#model, df, cat_columns = learn_model(1000000)
+#model, df, cat_columns = learn_model(1024000)
 
-#df_to_sql(get_user_features())
+#df = pd.read_csv("df_to_learn.csv", sep=';')
 
-check_model_locally()
+#df_to_sql(df)
 
-#df = load_features()
+#check_model_locally()
 
-#print(df.head(20))

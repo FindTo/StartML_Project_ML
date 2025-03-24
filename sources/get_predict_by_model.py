@@ -18,8 +18,7 @@ def load_models():
 
 def check_model_locally(n: int = 1000):
 
-    from_file = CatBoostClassifier()  # здесь не указываем параметры, которые были при обучении, в дампе модели все есть
-
+    from_file = CatBoostClassifier()
     from_file.load_model("catboost_model_final_proj")
 
     data = pd.read_csv('df_to_learn.csv', sep=';')
@@ -28,11 +27,9 @@ def check_model_locally(n: int = 1000):
     X = df.drop(['user_id', 'target', 'post_id'], axis=1)
     y = df.target
 
-    # Выбираем только числовые столбцы для преобразования
     numeric_columns = X.select_dtypes(include=['float64', 'int64']).columns
     X[numeric_columns] = X[numeric_columns].astype('float32')
 
-    # Привожу к формату признаков модели
     X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
        'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
        'exp_group', 'month']] = X[

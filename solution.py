@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from loguru import logger
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
 from typing import List
@@ -13,7 +12,7 @@ import os
 app = FastAPI()
 
 DATABASE_URL="postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
-FEATURES_DF_NAME="vladislav_lantsev_features_lesson_22"
+FEATURES_DF_NAME="vladislav_lantsev_boodt_ftrs_ml_less_22"
 CHUNKSIZE="200000"
 
 engine = create_engine(DATABASE_URL)
@@ -64,25 +63,25 @@ class PostGet(BaseModel):
         orm_mode = True
 def get_user_df():
 
-    # Установка соединения с базой данных
+    # Obtain connection with target db
     user = pd.read_sql("SELECT * FROM public.user_data;", DATABASE_URL)
     print(user.head())
     return user
 
 def get_post_df():
 
-    # Установка соединения с базой данных
+    # Obtain connection with target db
     post = pd.read_sql("SELECT * FROM public.post_text_df;", DATABASE_URL)
     print(post.head())
     return post
 
 def get_user_features() -> pd.DataFrame:
 
-    # Выгружаем таблицу user с сервера
+    # Loading user table from the DB
     user = get_user_df()
     print(user.user_id.nunique())
 
-    # Читаем датафрейм с обучения модели
+    # Loading learning DF
     #data = pd.read_csv('df_to_learn.csv', sep=';')
     data = load_features()
 
@@ -90,23 +89,23 @@ def get_user_features() -> pd.DataFrame:
     print(data.head())
     print(data.columns)
 
-    # Так же в скачанном user обновляю параметр city
+    # Convert 'city' parameter to binary 'city_capital
     capitals = ['Moscow', 'Saint Petersburg', 'Kyiv', 'Minsk', 'Baku', 'Almaty', 'Astana', 'Helsinki',
                 'Istanbul', 'Ankara', 'Riga', 'Nicosia', 'Limassol', 'Zurich', 'Bern', 'Tallin']
     user['city'] = user.city.apply(lambda x: 1 if x in capitals else 0)
     user = user.rename(columns={"city": "city_capital"})
 
-    # Убераю лишние для модели признаки
+    # Remove unnecessary features
     user = user.drop(['os', 'source'], axis=1)
 
-    # Конвертация численных во float32 для модели
+    # Convert all numbers to float32
     numeric_columns = user.select_dtypes(include=['float64', 'int64']).columns
     user[numeric_columns] = user[numeric_columns].astype('float32')
 
-    # Объединение таблицы с обучения вместе с таблицой user, чтобы иметь всех юзеров
+    # Add all users from the user table
     user = user.combine_first(data)
 
-    # Конвертация категориального численного в int32 для модели
+    # Numerical categorical to int32
     user['exp_group'] = user['exp_group'].astype('int32')
 
     print(user.shape)
@@ -118,7 +117,7 @@ def get_user_features() -> pd.DataFrame:
     return user
 
 
-# Список признаков модели
+# Set of the model features with correct order
 columns = ['topic', 'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
             'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
            'text_length', 'gender', 'age', 'country', 'exp_group', 'city_capital',
@@ -140,21 +139,24 @@ def get_db():
 @app.get("/post/recommendations/", response_model=List[PostGet])
 def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
 
-    # Выбираю записи из таблицы под заданного юзера
-    user_features = user_df[user_df['user_id'] == id][['user_id', 'gender', 'age', 'country',
-                                                   'exp_group', 'city_capital', 'main_topic_liked', 'main_topic_viewed',
-                                                   'views_per_user',
-                                                   'likes_per_user']]
+    # Taking user data by ID from the original user table
+    user_features = user_df[user_df['user_id'] == id][['user_id',
+                                                       'gender',
+                                                       'age',
+                                                       'country',
+                                                       'exp_group',
+                                                       'city_capital',
+                                                       'main_topic_liked',
+                                                       'main_topic_viewed',
+                                                       'views_per_user',
+                                                       'likes_per_user']]
 
-    # Фильтр на грязные даные после мержа df и user
-    user_features['main_topic_liked'] = user_features['main_topic_liked'].apply(
-        lambda x: user_features['main_topic_liked'].mode()[0])
-    user_features['main_topic_viewed'] = user_features['main_topic_viewed'].apply(
-        lambda x: user_features['main_topic_viewed'].mode()[0])
-    user_features['views_per_user'] = user_features['views_per_user'].apply(
-        lambda x: user_features['views_per_user'].mode()[0])
-    user_features['likes_per_user'] = user_features['likes_per_user'].apply(
-        lambda x: user_features['likes_per_user'].mode()[0])
+    calc_features = ['main_topic_liked', 'main_topic_viewed', 'views_per_user', 'likes_per_user']
+
+    for i in calc_features:
+
+         # Filter empty records after merge with mode value (very few users)
+        user_features[i] = user_features[i].apply(lambda x: user_features[i].mode()[0])
 
     user_features = user_features.iloc[0].to_frame().T.reset_index()
 
@@ -163,60 +165,78 @@ def recommended_posts(id: int, time: datetime, limit: int = 5) -> List[PostGet]:
     user_features['month'] = time.month
     user_features['day'] = time.day
 
-    # Фича-индикатор суммарного времени с 2021 года до текущего момента просмотра, в часах
+    # Time indicator in hours from the beginning of 2021
     user_features['time_indicator'] = (time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
 
-    logger.info(user_features)
+    #logger.info(user_features)
 
-    # Набираю пул постов для предсказания: для юзера они должны быть незнакомы и более-менее пролайканы и просмотрены
+    # Post pool for prediction: min likes and views as a filter
     post_pull = user_df[(user_df['user_id'] != user_features.iloc[0]['user_id'])
                      & (user_df['post_views'] > 20)
                      & (user_df['post_likes'] > 10)
-                     ][['post_id', 'post_likes', 'post_views', 'text_length',
-                        'cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-                        'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
+                     ][['post_id',
+                        'post_likes',
+                        'post_views',
+                        'text_length',
+                        'cluster_1',
+                        'cluster_2',
+                        'cluster_3',
+                        'cluster_4',
+                        'cluster_5',
+                        'cluster_6',
+                        'cluster_7',
+                        'cluster_8',
+                        'cluster_9',
                         'topic'
                         ]].drop_duplicates('post_id').reset_index()
 
-    # Мержу запись по юзеру с постами и заполняю пропуски данными юзера
+
+    # Merge with user data and preparing for prediction
     X = post_pull.combine_first(user_features).drop(['user_id', 'post_id'], axis=1)
-    X['age'] = X['age'].fillna(X['age'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['country'] = X['country'].fillna(X['country'].mode()[0])
-    X['city_capital'] = X['city_capital'].fillna(X['city_capital'].mode()[0])
-    X['day'] = X['day'].fillna(X['day'].mode()[0])
-    X['exp_group'] = X['exp_group'].fillna(X['exp_group'].mode()[0])
-    X['gender'] = X['gender'].fillna(X['gender'].mode()[0])
-    X['hour'] = X['hour'].fillna(X['hour'].mode()[0])
-    X['month'] = X['month'].fillna(X['month'].mode()[0])
-    X['likes_per_user'] = X['likes_per_user'].fillna(X['likes_per_user'].mode()[0])
-    X['main_topic_liked'] = X['main_topic_liked'].fillna(X['main_topic_liked'].mode()[0])
-    X['main_topic_viewed'] = X['main_topic_viewed'].fillna(X['main_topic_viewed'].mode()[0])
-    X['time_indicator'] = X['time_indicator'].fillna(X['time_indicator'].mode()[0])
-    X['views_per_user'] = X['views_per_user'].fillna(X['views_per_user'].mode()[0])
 
-    # Привожу к формату признаков модели
+    columns_to_fill = ['age',
+                       'city_capital',
+                       'country',
+                       'day',
+                       'exp_group',
+                       'gender',
+                       'hour',
+                       'month',
+                       'likes_per_user',
+                       'main_topic_liked',
+                       'main_topic_viewed',
+                       'time_indicator',
+                       'views_per_user'
+                       ]
+    for i in columns_to_fill:
+
+        # filling gaps after combine_first with input user data
+        X[i] = X[i].fillna(X[i].mode()[0])
+
+    # All integers - to int32
     X[['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-       'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-       'exp_group', 'month']] = X[
+       'cluster_5', 'cluster_6', 'cluster_7', 'cluster_8',
+       'cluster_9', 'exp_group', 'month']] = X[
         ['cluster_1', 'cluster_2', 'cluster_3', 'cluster_4',
-         'cluster_5','cluster_6', 'cluster_7', 'cluster_8', 'cluster_9',
-         'exp_group', 'month']].astype('int32')
+         'cluster_5','cluster_6', 'cluster_7', 'cluster_8',
+         'cluster_9','exp_group', 'month']].astype('int32')
 
+    # Features order - as at learning
     X = X[columns]
 
+    # Like probability prediction
     X['ax'] = model.predict_proba(X)[:, 1]
 
     X = X.combine_first(post_pull)
 
-    # Первые n=limit постов из пула с максимальной вероятностью лайка
+    # First n=limit post with the highest like probability
     posts_recnd = X.drop_duplicates('post_id').sort_values(ascending=False, by='ax').head(limit)['post_id'].to_list()
 
-    logger.info(posts_recnd)
+    #logger.info(posts_recnd)
 
     posts_recnd_list = []
 
-    # Набираю посты из скачанной таблицы постов
+    # Getting post data by obtained IDs
     for i in posts_recnd:
 
         posts_recnd_list.append(PostGet(id=i,
