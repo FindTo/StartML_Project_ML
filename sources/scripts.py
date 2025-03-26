@@ -1,14 +1,73 @@
+from dotenv import load_dotenv
 import pandas as pd
-from learn_model import get_user_df
-from sqlalchemy import create_engine
 import os
+from sqlalchemy import create_engine
 
-def get_post_df():
+DATABASE_URL="postgresql://robot-startml-ro:pheiph0hahj1Vaif@postgres.lab.karpov.courses:6432/startml"
+CHUNKSIZE="200000"
 
-    # Obtain db connection
-    post = pd.read_sql("SELECT * FROM public.post_text_df;", os.getenv('DATABASE_URL'))
-    print(post.head())
-    return post
+USER_FEATURES_DF_NAME_NN="vladislav_lantsev_user_features_lesson_10_dl"
+POST_FEATURES_DF_NAME_NN="vladislav_lantsev_post_features_lesson_10_dl"
+NN_INPUT_COLUMNS_DF_NAME="vladislav_lantsev_nn_input_columns_lesson_10_dl"
+NN_MODEL_NAME = "nn_estinmate_likes_200xPCA_embedds_1024k_825_drop_03_02.pt"
+
+BOOSTING_FEATURES_DF_NAME="vladislav_lantsev_boodt_ftrs_ml_less_22"
+BOOSTING_MODEL_NAME="catboost_model_final_proj"
+
+def load_features(features_name) -> pd.DataFrame:
+
+    engine = create_engine(DATABASE_URL)
+    conn = engine.connect().execution_options(stream_results=True)
+    chunks = []
+
+    try:
+
+        print(("from sql - start loading"))
+        for chunk_dataframe in pd.read_sql(features_name,
+                                           conn, chunksize=int(CHUNKSIZE)):
+
+            chunks.append(chunk_dataframe)
+
+        print(("from sql - loaded successfully"))
+
+    except Exception as e:
+
+        raise RuntimeError(f"Loading error: {e}")
+
+    finally:
+        conn.close()
+
+    return pd.concat(chunks, ignore_index=True)
+
+def df_to_sql(df, name):
+
+    # Try to write DF into the db by chunks
+    engine = create_engine(DATABASE_URL)
+    conn = engine.connect().execution_options(stream_results=True)
+    chunks = []
+    try:
+
+        print(("to_sql - start writing"))
+        df.to_sql(name,
+                  con=engine,
+                  if_exists='replace',
+                  index=False)
+        print(("to_sql - successfully written"))
+        conn.close()
+
+    except:
+
+        print(("to_sql - failed to write"))
+        conn.close()
+
+    return 0
+
+def get_user_df():
+
+    # Установка соединения с базой данных
+    user = pd.read_sql("SELECT * FROM public.user_data;", DATABASE_URL)
+    print(user.head())
+    return user
 
 # Obtain low-weight tables for all posts and users with features for NN input + listed NN input names
 def get_user_post_features() -> (pd.DataFrame, pd.DataFrame, pd.DataFrame):
@@ -138,79 +197,12 @@ def get_user_post_features() -> (pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
     return df_user_full, df_post_full, df_columns_learning
 
-def df_to_sql(df, name):
+# data, post, model = learn_model()
 
-    # Try to write DF into the db by chunks
-    engine = create_engine(os.getenv('DATABASE_URL'))
-    conn = engine.connect().execution_options(stream_results=True)
-    chunks = []
-    try:
+user_df, post_df, nn_input_columns_df = get_user_post_features()
 
-        print(("to_sql - start writing"))
-        df.to_sql(name,
-                  con=engine,
-                  if_exists='replace',
-                  index=False)
-        print(("to_sql - successfully written"))
-        conn.close()
+df_to_sql(user_df, USER_FEATURES_DF_NAME_NN)
+df_to_sql(post_df, POST_FEATURES_DF_NAME_NN)
+df_to_sql(nn_input_columns_df, NN_INPUT_COLUMNS_DF_NAME)
 
-    except:
-
-        print(("to_sql - failed to write"))
-        conn.close()
-
-    return 0
-
-
-def csv_to_sql(csv_name,table_name):
-
-
-    # Try to write csv file into the db by chunks
-    engine = create_engine(os.getenv('DATABASE_URL'))
-    conn = engine.connect().execution_options(stream_results=True)
-    try:
-
-        print(("to_sql - start writing"))
-
-        chunksize = int(os.getenv('CHUNKSIZE'))
-
-        for chunk in pd.read_csv(csv_name, chunksize=chunksize):
-
-            chunk.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
-
-        print(("to_sql - successfully written"))
-        conn.close()
-
-    except:
-
-        print(("to_sql - failed to write"))
-        conn.close()
-
-    return 0
-
-
-def load_features(features_name) -> pd.DataFrame:
-
-    engine = create_engine(os.getenv('DATABASE_URL'))
-    conn = engine.connect().execution_options(stream_results=True)
-    chunks = []
-
-    try:
-
-        print(("from sql - start loading"))
-        for chunk_dataframe in pd.read_sql(features_name,
-                                           conn, chunksize=int(os.getenv('CHUNKSIZE'))):
-
-            chunks.append(chunk_dataframe)
-
-        print(("from sql - loaded successfully"))
-
-    except Exception as e:
-
-        raise RuntimeError(f"Data loading error: {e}")
-
-    finally:
-        conn.close()
-
-    return pd.concat(chunks, ignore_index=True)
-
+#load_features(BOOSTING_FEATURES_DF_NAME)
