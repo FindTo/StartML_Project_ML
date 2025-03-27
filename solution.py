@@ -208,13 +208,12 @@ class NN_Recommend():
             user_features['month_12'] = 0.0
 
         # Time indicator from the beginning of 2021 up to now
-        user_features['time_indicator'] = (
-                                                      time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
+        user_features['time_indicator'] = (time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
 
         # logger.info(user_features)
 
         # Post pull filtered by likes and views
-        post_pull = self.post_df[(self.post_df['post_views'] > 100) & (self.post_df['post_likes'] > 10)]
+        post_pull = self.post_df[(self.post_df['post_views'] > 80) & (self.post_df['post_likes'] > 12)]
 
         # Merge post pull with user vector and fill the gaps
         X = post_pull.combine_first(user_features)
@@ -347,8 +346,7 @@ class Boost_Recommend():
         user_features['day'] = time.day
 
         # Time indicator in hours from the beginning of 2021
-        user_features['time_indicator'] = (
-                                                      time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
+        user_features['time_indicator'] = (time.year - 2021) * 360 * 24 + time.month * 30 * 24 + time.day * 24 + time.hour
 
         # logger.info(user_features)
 
